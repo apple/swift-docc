@@ -102,8 +102,8 @@ class RenderNodeTranslatorTests: XCTestCase {
         }
         
         XCTAssert(discussion.content.contains(where: { block in
-            if case .orderedList(start: let start, items: let items) = block,
-                start == nil,
+            if case .orderedList(startIndex: let start, items: let items) = block,
+                start == 1,
                 items.count == 3,
                 case .paragraph([.text("One ordered")])? = items[0].content.first,
                 case .paragraph([.text("Two ordered")])? = items[1].content.first,

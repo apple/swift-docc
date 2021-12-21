@@ -45,7 +45,7 @@ public enum RenderBlockContent: Equatable {
     /// A heading with the given level.
     case heading(level: Int, text: String, anchor: String?)
     /// A list that contains ordered items.
-    case orderedList(start: Int?, items: [ListItem])
+    case orderedList(startIndex: Int, items: [ListItem])
     /// A list that contains unordered items.
     case unorderedList(items: [ListItem])
     
@@ -257,7 +257,7 @@ extension RenderBlockContent: Codable {
         case .heading:
             self = try .heading(level: container.decode(Int.self, forKey: .level), text: container.decode(String.self, forKey: .text), anchor: container.decodeIfPresent(String.self, forKey: .anchor))
         case .orderedList:
-            self = try .orderedList(start: container.decodeIfPresent(Int.self, forKey: .start), items: container.decode([ListItem].self, forKey: .items))
+            self = try .orderedList(startIndex: container.decodeIfPresent(Int.self, forKey: .start) ?? 1, items: container.decode([ListItem].self, forKey: .items))
         case .unorderedList:
             self = try .unorderedList(items: container.decode([ListItem].self, forKey: .items))
         case .step:
@@ -321,7 +321,9 @@ extension RenderBlockContent: Codable {
             try container.encode(text, forKey: .text)
             try container.encode(anchor, forKey: .anchor)
         case .orderedList(let start, let items):
-            try container.encodeIfPresent(start, forKey: .start)
+            if start != 1 {
+                try container.encode(start, forKey: .start)
+            }
             try container.encode(items, forKey: .items)
         case .unorderedList(let items):
             try container.encode(items, forKey: .items)

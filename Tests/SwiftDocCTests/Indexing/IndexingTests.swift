@@ -168,7 +168,7 @@ class IndexingTests: XCTestCase {
     }
     
     func testRenderBlockContentOrderedList() {
-        let list = RenderBlockContent.orderedList(start: nil, items: [
+        let list = RenderBlockContent.orderedList(startIndex: 1, items: [
             .init(content: [
                 .paragraph(inlineContent: [.text("Hello, ")]),
                 ]),
