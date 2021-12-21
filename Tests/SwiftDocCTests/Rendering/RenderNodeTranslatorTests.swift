@@ -127,6 +127,20 @@ class RenderNodeTranslatorTests: XCTestCase {
                 return false
             }
         }))
+
+        XCTAssert(discussion.content.contains(where: { block in
+            if case .orderedList(startIndex: let start, items: let items) = block,
+                start == 2,
+                items.count == 3,
+                case .paragraph([.text("Two ordered with custom start")])? = items[0].content.first,
+                case .paragraph([.text("Three ordered with custom start")])? = items[1].content.first,
+                case .paragraph([.text("Four ordered with custom start")])? = items[2].content.first
+            {
+                return true
+            } else {
+                return false
+            }
+        }))
     }
     
     func testAutomaticOverviewAndDiscussionHeadings() throws {
