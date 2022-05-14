@@ -434,15 +434,15 @@ typealias ResolvedTopicReferenceCacheKey = String
 
 extension ResolvedTopicReference {
     /// Returns a unique cache ID for a pair of unresolved and parent references.
-    static func cacheIdentifier(_ reference: UnresolvedTopicReference, fromSymbolLink: Bool, in parent: ResolvedTopicReference?) -> ResolvedTopicReferenceCacheKey {
+    static func cacheIdentifier(_ reference: URL, fromSymbolLink: Bool, in parent: ResolvedTopicReference?) -> ResolvedTopicReferenceCacheKey {
         let isSymbolLink = fromSymbolLink ? ":symbol" : ""
         if let parent = parent {
             // Create a cache id in the parent context
-            return "\(reference.topicURL.absoluteString):\(parent.bundleIdentifier):\(parent.path):\(parent.sourceLanguage.id)\(isSymbolLink)"
+            return "\(reference.absoluteString):\(parent.bundleIdentifier):\(parent.path):\(parent.sourceLanguage.id)\(isSymbolLink)"
         } else {
             // A cache ID for an external reference
-            assert(reference.topicURL.components.host != nil)
-            return reference.topicURL.absoluteString.appending(isSymbolLink)
+            assert(reference.host != nil)
+            return reference.absoluteString.appending(isSymbolLink)
         }
     }
 }
@@ -482,7 +482,10 @@ public struct UnresolvedTopicReference: Hashable, CustomStringConvertible {
     ///   - parent: The resolved parent reference of the unresolved reference.
     ///   - unresolvedChild: The other unresolved reference.
     public init(parent: ResolvedTopicReference, unresolvedChild: UnresolvedTopicReference) {
-        var components = URLComponents(url: parent.url.appendingPathComponent(unresolvedChild.path), resolvingAgainstBaseURL: false)!
+        var components = URLComponents(
+            url: parent.url.appendingPathComponent(unresolvedChild.path, isDirectory: false),
+            resolvingAgainstBaseURL: false
+        )!
         components.fragment = unresolvedChild.fragment
         self.init(topicURL: ValidatedURL(components: components))
     }

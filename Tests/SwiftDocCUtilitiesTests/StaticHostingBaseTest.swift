@@ -17,7 +17,7 @@ class StaticHostingBaseTests: XCTestCase {
 
     /// Checks that the content in the output URL is as expected based on any JSON files found in the inputURL and any any sub folders.
     /// Also checks any index.html files contain the expected content.
-    func compareJSONFolder(fileManager: FileManager, output: URL, input: URL, indexHTML: String?) {
+    func compareJSONFolder(fileManager: FileManagerProtocol, output: URL, input: URL, indexHTML: String?) {
 
         do {
             let inputContents = try fileManager.contentsOfDirectory(atPath: input.path)

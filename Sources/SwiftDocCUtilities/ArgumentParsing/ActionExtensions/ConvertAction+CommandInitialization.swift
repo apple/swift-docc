@@ -87,8 +87,30 @@ extension ConvertAction {
 
 private func symbolGraphFiles(in directory: URL?) -> [URL] {
     guard let directory = directory else { return [] }
+    guard let enumerator = FileManager.default.enumerator(
+        at: directory,
+        includingPropertiesForKeys: [.isRegularFileKey]
+    ) else {
+        return []
+    }
     
-    let subpaths = FileManager.default.subpaths(atPath: directory.path) ?? []
-    return subpaths.map { directory.appendingPathComponent($0) }
-        .filter { DocumentationBundleFileTypes.isSymbolGraphFile($0) }
+    return enumerator.compactMap { element -> URL? in
+        guard let url = element as? URL else {
+            return nil
+        }
+        
+        guard let fileAttributes = try? url.resourceValues(forKeys:[.isRegularFileKey]) else {
+            return nil
+        }
+        
+        guard fileAttributes.isRegularFile == true else {
+            return nil
+        }
+        
+        guard DocumentationBundleFileTypes.isSymbolGraphFile(url) else {
+            return nil
+        }
+        
+        return url
+    }
 }
