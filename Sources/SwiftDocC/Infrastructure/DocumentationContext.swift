@@ -1190,7 +1190,7 @@ public class DocumentationContext: DocumentationContextDataProviderDelegate {
     private func parentChildRelationship(from edge: SymbolGraph.Relationship) -> (ResolvedTopicReference, ResolvedTopicReference)? {
         // Filter only parent <-> child edges
         switch edge.kind {
-        case .memberOf, .requirementOf:
+        case .memberOf, .requirementOf, .declaredIn:
             guard let parentRef = symbolIndex[edge.target]?.reference, let childRef = symbolIndex[edge.source]?.reference else {
             return nil
             }

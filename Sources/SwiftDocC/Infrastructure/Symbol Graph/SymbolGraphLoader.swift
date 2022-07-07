@@ -73,10 +73,17 @@ struct SymbolGraphLoader {
                 }
 
                 // `moduleNameFor(_:at:)` is static because it's pure function.
-                let (moduleName, _) = Self.moduleNameFor(symbolGraph, at: symbolGraphURL)
+                let (moduleName, isMainSymbolGraph) = Self.moduleNameFor(symbolGraph, at: symbolGraphURL)
                 // If the bundle provides availability defaults add symbol availability data.
                 self.addDefaultAvailability(to: &symbolGraph, moduleName: moduleName)
 
+                // transform extension block based structure emitted by the compiler to a
+                // custom structure where all extensions to the same type are collected in
+                // one extended type symbol
+                if !isMainSymbolGraph {
+                    try SymbolGraphTransformation.transformExtensionBlockFormatToExtendedTypeFormat(&symbolGraph, moduleName: moduleName)
+                }
+                
                 // Store the decoded graph in `loadedGraphs`
                 loadingLock.sync {
                     loadedGraphs[symbolGraphURL] = symbolGraph
@@ -115,7 +122,24 @@ struct SymbolGraphLoader {
             throw loadError
         }
         
-        self.symbolGraphs = loadedGraphs
+        var mainGraphs: [String: (url: URL, graph: SymbolGraph)] = [:]
+        
+        for (url, graph) in loadedGraphs {
+            let (name, isMainGraph) = Self.moduleNameFor(graph, at: url)
+            
+            if isMainGraph {
+                mainGraphs[name] = (url, graph)
+                loadedGraphs[url] = nil
+            }
+        }
+        
+        for (_, graph) in loadedGraphs {
+            mainGraphs[graph.module.name]?.graph.symbols.insert(contentsOf: graph.symbols)
+            mainGraphs[graph.module.name]?.graph.relationships.append(contentsOf: graph.relationships)
+        }
+        
+        self.symbolGraphs = mainGraphs.mappedTo(key: \.url, value: \.graph)
+        
         (self.unifiedGraphs, self.graphLocations) = graphLoader.finishLoading()
     }
     
@@ -379,5 +403,29 @@ extension SymbolGraph.Symbol.Availability.AvailabilityItem {
         var newValue = self
         newValue.introducedVersion = platformVersion
         return newValue
+    }
+}
+
+
+extension Dictionary {
+    mutating func insert(contentsOf other: Self) {
+        self.reserveCapacity(self.capacity + other.capacity)
+        for (key, value) in other {
+            self[key] = value
+        }
+    }
+}
+
+extension Dictionary {
+    func mappedTo<K: Hashable, V>(key keyPathToKey: KeyPath<Value, K>,
+                                  value keyPathToValue: KeyPath<Value, V>) -> Dictionary<K, V> {
+        var new = Dictionary<K, V>()
+        new.reserveCapacity(self.capacity)
+        
+        for (_, value) in self {
+            new[value[keyPath: keyPathToKey]] = value[keyPath: keyPathToValue]
+        }
+        
+        return new
     }
 }

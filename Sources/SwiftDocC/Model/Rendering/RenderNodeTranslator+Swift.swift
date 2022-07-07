@@ -11,6 +11,8 @@
 import Foundation
 import SymbolKit
 
+// METODO: this seems to be duplicate of DocumentationContentRenderer.Swift and only seems to be used in tests!
+
 extension RenderNodeTranslator {
     
     /// Node translator extension with some exceptions to apply to Swift symbols.

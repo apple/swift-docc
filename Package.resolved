@@ -38,15 +38,6 @@
         }
       },
       {
-        "package": "SymbolKit",
-        "repositoryURL": "https://github.com/apple/swift-docc-symbolkit",
-        "state": {
-          "branch": "main",
-          "revision": "076d5ca9b1501a260d2330504939e5fce49f2c25",
-          "version": null
-        }
-      },
-      {
         "package": "CLMDB",
         "repositoryURL": "https://github.com/apple/swift-lmdb.git",
         "state": {
