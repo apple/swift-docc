@@ -16,7 +16,6 @@ import SymbolKit
 /// A type that groups a bundle's symbol graphs by the module they describe,
 /// which makes detecting symbol collisions and overloads easier.
 struct SymbolGraphLoader {
-    private(set) var symbolGraphs: [URL: SymbolKit.SymbolGraph] = [:]
     private(set) var unifiedGraphs: [String: SymbolKit.UnifiedSymbolGraph] = [:]
     private(set) var graphLocations: [String: [SymbolKit.GraphCollector.GraphKind]] = [:]
     private var dataProvider: DocumentationContextDataProvider
@@ -45,11 +44,10 @@ struct SymbolGraphLoader {
     /// Loads all symbol graphs in the given bundle.
     ///
     /// - Throws: If loading and decoding any of the symbol graph files throws, this method re-throws one of the encountered errors.
-    mutating func loadAll() throws {
+    mutating func loadAll(using decoder: JSONDecoder = JSONDecoder()) throws {
         let loadingLock = Lock()
-        let decoder = JSONDecoder()
 
-        var loadedGraphs = [URL: SymbolKit.SymbolGraph]()
+        var loadedGraphs = [URL: (usesExtensionSymbolFormat: Bool?, graph: SymbolKit.SymbolGraph)]()
         let graphLoader = GraphCollector()
         var loadError: Error?
         let bundle = self.bundle
@@ -77,17 +75,22 @@ struct SymbolGraphLoader {
                 // If the bundle provides availability defaults add symbol availability data.
                 self.addDefaultAvailability(to: &symbolGraph, moduleName: moduleName)
 
+                // main symbol graphs are ambiguous
+                var usesExtensionSymbolFormat: Bool? = nil
+                
                 // transform extension block based structure emitted by the compiler to a
                 // custom structure where all extensions to the same type are collected in
                 // one extended type symbol
                 if !isMainSymbolGraph {
-                    try SymbolGraphTransformation.transformExtensionBlockFormatToExtendedTypeFormat(&symbolGraph, moduleName: moduleName)
+                    let containsExtensionSymbols = try SymbolGraphTransformation.transformExtensionBlockFormatToExtendedTypeFormat(&symbolGraph, moduleName: moduleName)
+                    
+                    // empty symbol graphs are ambiguous (but shouldn't exist)
+                    usesExtensionSymbolFormat = symbolGraph.symbols.isEmpty ? nil : containsExtensionSymbols
                 }
                 
                 // Store the decoded graph in `loadedGraphs`
                 loadingLock.sync {
-                    loadedGraphs[symbolGraphURL] = symbolGraph
-                    graphLoader.mergeSymbolGraph(symbolGraph, at: symbolGraphURL)
+                    loadedGraphs[symbolGraphURL] = (usesExtensionSymbolFormat, symbolGraph)
                 }
             } catch {
                 // If the symbol graph was invalid, store the error
@@ -116,31 +119,32 @@ struct SymbolGraphLoader {
             bundle.symbolGraphURLs.forEach(loadGraphAtURL)
         }
         
+        // define an appropriate merging strategy based on the graph formats
+        let foundGraphUsingExtensionSymbolFormat = loadedGraphs.values.map(\.usesExtensionSymbolFormat).contains(true)
+        let foundGraphNotUsingExtensionSymbolFormat = loadedGraphs.values.map(\.usesExtensionSymbolFormat).contains(false)
+        
+        guard !foundGraphUsingExtensionSymbolFormat || !foundGraphNotUsingExtensionSymbolFormat else {
+            throw LoadingError.mixedGraphFormats
+        }
+        
+        let mergeStrategy = GraphCollector.MergeStrategy(extensionGraphAssociation: foundGraphUsingExtensionSymbolFormat ? .extendingGraph : .extendedGraph)
+                
+        // feed the loaded graphs into the `graphLoader`
+        for (url, (_, graph)) in loadedGraphs {
+            graphLoader.mergeSymbolGraph(graph, at: url, strategy: mergeStrategy)
+        }
+        
         // In case any of the symbol graphs errors, re-throw the error.
         // We will not process unexpected file formats.
         if let loadError = loadError {
             throw loadError
         }
         
-        var mainGraphs: [String: (url: URL, graph: SymbolGraph)] = [:]
-        
-        for (url, graph) in loadedGraphs {
-            let (name, isMainGraph) = Self.moduleNameFor(graph, at: url)
-            
-            if isMainGraph {
-                mainGraphs[name] = (url, graph)
-                loadedGraphs[url] = nil
-            }
-        }
-        
-        for (_, graph) in loadedGraphs {
-            mainGraphs[graph.module.name]?.graph.symbols.insert(contentsOf: graph.symbols)
-            mainGraphs[graph.module.name]?.graph.relationships.append(contentsOf: graph.relationships)
-        }
-        
-        self.symbolGraphs = mainGraphs.mappedTo(key: \.url, value: \.graph)
-        
-        (self.unifiedGraphs, self.graphLocations) = graphLoader.finishLoading()
+        (self.unifiedGraphs, self.graphLocations) = graphLoader.finishLoading(strategy: mergeStrategy)
+    }
+    
+    private enum LoadingError: Error {
+        case mixedGraphFormats
     }
     
     // Alias to declutter code
@@ -156,20 +160,6 @@ struct SymbolGraphLoader {
             return cached
         }
         return AvailabilityItem(defaultAvailability)
-    }
-    
-    private func loadSymbolGraph(at url: URL) throws -> (SymbolGraph, isMainSymbolGraph: Bool) {
-        // This is a private method, the `url` key is known to exist
-        var symbolGraph = symbolGraphs[url]!
-        let (moduleName, isMainSymbolGraph) = Self.moduleNameFor(symbolGraph, at: url)
-        
-        if !isMainSymbolGraph {
-            // If this is an extending another module, change the module name to match the exteneded module.
-            // This makes the symbols in this graph have a path that starts with the extended module's name.
-            symbolGraph.module.name = moduleName
-        }
-
-        return (symbolGraph, isMainSymbolGraph)
     }
     
     /// If the bundle defines default availability for the symbols in the given symbol graph
@@ -286,30 +276,6 @@ struct SymbolGraphLoader {
         }
         return (moduleName, isMainSymbolGraph)
     }
-
-    /// Returns the next-available symbol graph in the bundle.
-    /// - Parameter isMainSymbolGraph: An inout Boolean, if `false` the returned symbol graph is an extension to another symbol graph.
-    /// - Returns: The next symbol graph in the bundle and its URL, or `nil` if there are no more symbol graphs.
-    mutating func next(isMainSymbolGraph: inout Bool) throws -> (url: URL, symbolGraph: SymbolGraph)? {
-        isMainSymbolGraph = false
-        guard !symbolGraphs.isEmpty else { return nil }
-        
-        // The first remaining symbol graph,
-        // preferring main symbol graphs over extensions.
-        let url = symbolGraphs.keys
-            .sorted(by: { lhs, _ in
-                return !lhs.lastPathComponent.contains("@")
-            })
-            .first!
-        
-        // Load the symbol graph
-        let symbolGraph: SymbolGraph
-        (symbolGraph, isMainSymbolGraph) = try loadSymbolGraph(at: url)
-        
-        // Remove the graph from the remaining queue and return.
-        symbolGraphs.removeValue(forKey: url)
-        return (url, symbolGraph)
-    }
 }
 
 extension SymbolGraph.SemanticVersion {
@@ -403,29 +369,5 @@ extension SymbolGraph.Symbol.Availability.AvailabilityItem {
         var newValue = self
         newValue.introducedVersion = platformVersion
         return newValue
-    }
-}
-
-
-extension Dictionary {
-    mutating func insert(contentsOf other: Self) {
-        self.reserveCapacity(self.capacity + other.capacity)
-        for (key, value) in other {
-            self[key] = value
-        }
-    }
-}
-
-extension Dictionary {
-    func mappedTo<K: Hashable, V>(key keyPathToKey: KeyPath<Value, K>,
-                                  value keyPathToValue: KeyPath<Value, V>) -> Dictionary<K, V> {
-        var new = Dictionary<K, V>()
-        new.reserveCapacity(self.capacity)
-        
-        for (_, value) in self {
-            new[value[keyPath: keyPathToKey]] = value[keyPath: keyPathToValue]
-        }
-        
-        return new
     }
 }

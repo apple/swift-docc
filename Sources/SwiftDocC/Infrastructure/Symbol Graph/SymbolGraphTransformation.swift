@@ -11,10 +11,16 @@ import SymbolKit
 enum SymbolGraphTransformation { }
 
 extension SymbolGraphTransformation {
-    static func transformExtensionBlockFormatToExtendedTypeFormat(_ symbolGraph: inout SymbolGraph, moduleName: String) throws {
-        prependModuleNameToPathComponentsOfAllSymbols(&symbolGraph, moduleName)
+    static func transformExtensionBlockFormatToExtendedTypeFormat(_ symbolGraph: inout SymbolGraph, moduleName: String) throws -> Bool {
+        var extensionBlockSymbols = extractExtensionBlockSymbols(from: &symbolGraph)
         
-        let extensionBlockSymbols = extractExtensionBlockSymbols(from: &symbolGraph)
+        guard !extensionBlockSymbols.isEmpty else {
+            return false
+        }
+        
+        prependModuleNameToPathComponents(&symbolGraph.symbols.values, moduleName)
+        prependModuleNameToPathComponents(&extensionBlockSymbols.values, moduleName)
+        
         var (extensionToRelationships,
              memberOfRelationships,
              conformsToRelationships) = extractRelationshipsTouchingExtensionBlockSymbols(from: &symbolGraph, using: extensionBlockSymbols)
@@ -64,6 +70,8 @@ extension SymbolGraphTransformation {
         extendedTypeSymbols.values.forEach { symbol in symbolGraph.symbols[symbol.identifier.precise] = symbol }
         
         try synthesizeExtendedModuleSymbolsAndDeclaredInRelationships(on: &symbolGraph, using: extendedTypeSymbols.values.map(\.identifier.precise))
+        
+        return true
     }
 
     private static func attachDocComments<T: MutableCollection, S: DocCommentMixinHost>(to targets: inout T,
@@ -90,9 +98,10 @@ extension SymbolGraphTransformation {
         }
     }
     
-    private static func prependModuleNameToPathComponentsOfAllSymbols(_ symbolGraph: inout SymbolGraph, _ moduleName: String) {
-        for (key, symbol) in symbolGraph.symbols {
-            symbolGraph.symbols[key] = symbol.replacing(\.pathComponents, with: [moduleName] + symbol.pathComponents)
+    private static func prependModuleNameToPathComponents<S: MutableCollection>(_ symbols: inout S, _ moduleName: String) where S.Element == SymbolGraph.Symbol {
+        for i in symbols.indices {
+            let symbol = symbols[i]
+            symbols[i] = symbol.replacing(\.pathComponents, with: [moduleName] + symbol.pathComponents)
         }
     }
 
@@ -232,6 +241,8 @@ extension SymbolGraphTransformation {
 
     private static func synthesizeExtendedModuleSymbolsAndDeclaredInRelationships<S: Sequence>(on symbolGraph: inout SymbolGraph, using extendedTypeSymbolIds: S) throws
     where S.Element == String {
+        var moduleSymbolIdenitfiers: [String: String] = [:]
+        
         for extendedTypeSymbolId in extendedTypeSymbolIds {
             guard let extendedTypeSymbol = symbolGraph.symbols[extendedTypeSymbolId] else {
                 continue
@@ -241,7 +252,9 @@ extension SymbolGraphTransformation {
                 continue
             }
             
-            let id = try extendedTypeSymbol.identifier.precise.modulePrefix(for: extensionMixin.extendedModule)
+            let modulePrefix = try extendedTypeSymbol.identifier.precise.modulePrefix(for: extensionMixin.extendedModule)
+            let id = moduleSymbolIdenitfiers[modulePrefix] ?? "s:m:" + extendedTypeSymbol.identifier.precise
+            moduleSymbolIdenitfiers[modulePrefix] = id
             
             
             let symbol = symbolGraph.symbols[id]?.replacing(\.accessLevel) { oldSymbol in

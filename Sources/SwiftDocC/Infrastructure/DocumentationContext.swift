@@ -267,6 +267,9 @@ public class DocumentationContext: DocumentationContextDataProviderDelegate {
     /// A synchronized reference cache to store resolved references.
     let referenceCache = Synchronized([String: ResolvedTopicReference]())
     
+    /// The decoder used in the `SymbolGraphLoader`
+    var decoder: JSONDecoder = JSONDecoder()
+    
     /// Initializes a documentation context with a given `dataProvider` and registers all the documentation bundles that it provides.
     ///
     /// - Parameter dataProvider: The data provider to register bundles from.
@@ -1979,7 +1982,7 @@ public class DocumentationContext: DocumentationContextDataProviderDelegate {
         discoveryGroup.async(queue: discoveryQueue) { [unowned self] in
             symbolGraphLoader = SymbolGraphLoader(bundle: bundle, dataProvider: self.dataProvider)
             do {
-                try symbolGraphLoader.loadAll()
+                try symbolGraphLoader.loadAll(using: decoder)
             } catch {
                 // Pipe the error out of the dispatch queue.
                 discoveryError.sync({
