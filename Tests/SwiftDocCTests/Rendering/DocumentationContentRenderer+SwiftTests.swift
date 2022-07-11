@@ -12,7 +12,7 @@ import Foundation
 import XCTest
 @testable import SwiftDocC
 
-class RenderNodeTranslator_SwiftTests: XCTestCase {
+class DocumentationContentRenderer_SwiftTests: XCTestCase {
     
     // Tokens where the type name is incorrectly identified as "typeIdentifier"
     let typeIdentifierTokens: [DeclarationRenderSection.Token] = [
