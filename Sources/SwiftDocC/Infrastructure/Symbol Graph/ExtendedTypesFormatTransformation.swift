@@ -1,16 +1,88 @@
-//
-//  SymbolGraphTransformation.swift
-//  
-//
-//  Created by Max Obermeier on 6/21/22.
-//
+/*
+ This source file is part of the Swift.org open source project
+
+ Copyright (c) 2021 Apple Inc. and the Swift project authors
+ Licensed under Apache License v2.0 with Runtime Library Exception
+
+ See https://swift.org/LICENSE.txt for license information
+ See https://swift.org/CONTRIBUTORS.txt for Swift project authors
+*/
 
 import Foundation
 import SymbolKit
 
-enum SymbolGraphTransformation { }
+/// A namespace comprising functionality for converting between the standard Symbol Graph File
+/// format with extension block symbols and the extended types format extension used by SwiftDocC.
+enum ExtendedTypesFormatTransformation { }
 
-extension SymbolGraphTransformation {
+extension ExtendedTypesFormatTransformation {
+    /// Convert from the extension block symbol format to the extended type symbol format.
+    ///
+    /// First, the function checks if there are any symbols of kind `.extension` in the graph.
+    /// If not, function returns `false` without altering the graph in any way.
+    ///
+    /// If it finds such symbols, it applies the actual transformation. Refer to the sections below to find
+    /// out how the two formats differ.
+    ///
+    /// In addition, the transformation prepends the given `moduleName` to the `pathComponents` of all
+    /// symbols in the graph.
+    ///
+    /// ### The Extension Block Symbol Format
+    ///
+    /// The extension block symbol format captures extensions to external types in the following way:
+    /// - a member symbol of the according kind for all added members
+    /// - a symbol of kind `.extension` _for each extension block_ (i.e. `extension X { ... }`)
+    /// - a `.memberOf` relationship between each member symbol and the `.extension` symbol representing
+    /// the extension block the member was declared in
+    /// - a `.conformsTo` relationship between each relevant protocol and the `.extension` symbol representing
+    /// the extension block where the external type was conformed to the respective protocol
+    /// - an `.extensionTo` relationship between each `.extension` symbol and the symbol of the original declaration
+    /// of the external type it extends
+    ///
+    /// ```
+    ///                                                                         ┌──────────────┐
+    ///                                              ┌───────────conformsTo────►│swift.protocol│
+    ///                                              │                        m └──────────────┘
+    ///                                              │
+    /// ┌─────────────┐                              │n                         ┌────────────────┐
+    /// │Original Type│                      ┌───────┴───────┐                  │Extension Member│
+    /// │    Symbol   │◄────extensionTo──────┤swift.extension│◄────memberOf─────┤     Symbol     │
+    /// └─────────────┘ 1                  n └───────────────┘ 1              n └────────────────┘
+    /// ```
+    ///
+    /// ### The Extended Type Symbol Format
+    ///
+    /// The extended type symbol format provides a more concise and hierarchical structure:
+    /// - a member symbol of the according kind for all added members
+    /// - an **extended type symbol** _for each external type that was extended_:
+    ///     - ``SymbolKit/SymbolGraph/Symbol/KindIdentifier/extendedStruct``
+    ///     - ``SymbolKit/SymbolGraph/Symbol/KindIdentifier/extemdedClass``
+    ///     - ``SymbolKit/SymbolGraph/Symbol/KindIdentifier/extendedEnum``
+    ///     - ``SymbolKit/SymbolGraph/Symbol/KindIdentifier/extendedProtocol``
+    /// - a `.memberOf` relationship between each member symbol and the **extended type symbol** representing
+    /// the type that was extended
+    /// - a `.conformsTo` relationship between each relevant protocol and the **extended type symbol** representing
+    /// the the type that was extended
+    /// - a ``SymbolKit/SymbolGraph/Symbol/KindIdentifier/extendedModule`` symbol for each module that
+    /// was extended with at leas one `.extension` symbol
+    /// - a ``SymbolKit/SymbolGraph/Relationship/declaredIn`` relationship between each **extended type symbol**
+    /// and the **extended module symbol** representing the module the extended type was originally declared in
+    ///
+    /// ```
+    ///                                                                        ┌──────────────┐
+    ///                                             ┌───────────conformsTo────►│swift.protocol│
+    ///                                             │                        m └──────────────┘
+    ///                                             │n
+    /// ┌────────────┐                      ┌───────┴─────┐                    ┌────────────────┐
+    /// │swift.module│                      │Extended Type│                    │Extension Member│
+    /// │ .extension │◄────extensionTo──────┤   Symbol    │◄──────memberOf─────┤     Symbol     │
+    /// └────────────┘ 1                   n└─────────────┘ 1                n └────────────────┘
+    /// ```
+    ///
+    /// - Parameter symbolGraph: An (extension) symbol graph that should use the extensoin block symbol format.
+    /// - Parameter moduleName: The name of the extend**ing** module.
+    /// - Returns: Returns whether the transformation was applied (the `symbolGraph` was an extension graph
+    /// in the extended type symbol format) or not
     static func transformExtensionBlockFormatToExtendedTypeFormat(_ symbolGraph: inout SymbolGraph, moduleName: String) throws -> Bool {
         var extensionBlockSymbols = extractExtensionBlockSymbols(from: &symbolGraph)
         
@@ -28,20 +100,6 @@ extension SymbolGraphTransformation {
         var (extendedTypeSymbols,
              extensionBlockToExtendedTypeMapping,
              extendedTypeToExtensionBlockMapping) = synthesizeExtendedTypeSymbols(using: extensionBlockSymbols, extensionToRelationships)
-
-        var docCommentOfExtensionBlockUsed: [String: Bool] = [:]
-        docCommentOfExtensionBlockUsed.reserveCapacity(extensionBlockSymbols.count)
-        
-        // TODO: attach comments to conformsToRelationships once differentiating between local and inherited documentation
-        // is possible and frontend can display documentation for relationships.
-//        attachDocComments(to: &conformsToRelationships, using: { (target) -> [SymbolGraph.Symbol] in
-//            if let extensionBlockSymbol = extensionBlockSymbols[target.source] {
-//                docCommentOfExtensionBlockUsed[extensionBlockSymbol.identifier.precise] = true
-//                return [extensionBlockSymbol]
-//            } else {
-//                return []
-//            }
-//        })
         
         redirect(\.target, of: &memberOfRelationships, using: extensionBlockToExtendedTypeMapping)
         
@@ -52,13 +110,7 @@ extension SymbolGraphTransformation {
                 return []
             }
             
-            let extensionBlockSymbolsWithCommentsNotInConformsToRelationship = relevantExtensionBlockSymbols.filter({ symbol in
-                !(docCommentOfExtensionBlockUsed[symbol.identifier.precise] ?? false)
-            })
-            
-            let candidateSymbols = extensionBlockSymbolsWithCommentsNotInConformsToRelationship.isEmpty ? relevantExtensionBlockSymbols : extensionBlockSymbolsWithCommentsNotInConformsToRelationship
-            
-            if let winner = candidateSymbols.max(by: { a, b in (a.docComment?.lines.count ?? 0) < (b.docComment?.lines.count ?? 0) }) {
+            if let winner = relevantExtensionBlockSymbols.max(by: { a, b in (a.docComment?.lines.count ?? 0) < (b.docComment?.lines.count ?? 0) }) {
                 return [winner]
             } else {
                 return []
@@ -74,11 +126,16 @@ extension SymbolGraphTransformation {
         return true
     }
 
-    private static func attachDocComments<T: MutableCollection, S: DocCommentMixinHost>(to targets: inout T,
-                                                 using source: (T.Element) -> [S],
-                                                 onConflict resolveConflict: (_ old: T.Element, _ new: S)
+    /// Tries to obtain `docComment`s for all `targets` and copies the documentaiton from sources to the target.
+    ///
+    /// Iterates over all `targets` calling the `source` method to obtain a list of symbols that should serve as sources for the target's `docComment`.
+    /// If there is more than one symbol containing a `docComment` in the compound list of target and the list returned by `source`, `onConflict` is
+    /// called iteratively on the (modified) target and the next source element.
+    private static func attachDocComments<T: MutableCollection>(to targets: inout T,
+                                                                using source: (T.Element) -> [SymbolGraph.Symbol],
+                                                                onConflict resolveConflict: (_ old: T.Element, _ new: SymbolGraph.Symbol)
                                                  -> SymbolGraph.LineList? = { _, _ in nil })
-    where T.Element: DocCommentMixinHost {
+    where T.Element == SymbolGraph.Symbol {
         for index in targets.indices {
             var target = targets[index]
             
@@ -98,6 +155,7 @@ extension SymbolGraphTransformation {
         }
     }
     
+    /// Adds the given `moduleName` to the beginning of the `pathComponents` array of all `symbols`.
     private static func prependModuleNameToPathComponents<S: MutableCollection>(_ symbols: inout S, _ moduleName: String) where S.Element == SymbolGraph.Symbol {
         for i in symbols.indices {
             let symbol = symbols[i]
@@ -105,6 +163,9 @@ extension SymbolGraphTransformation {
         }
     }
 
+    /// Collects all symbols with kind identifier `.extension`, removes them from the `symbolGraph`, and returns them separately.
+    ///
+    /// - Returns: The extracted symbols of kind `.extension` keyed by their precise identifier.
     private static func extractExtensionBlockSymbols(from symbolGraph: inout SymbolGraph) -> [String: SymbolGraph.Symbol] {
         var extensionBlockSymbols: [String: SymbolGraph.Symbol] = [:]
         
@@ -120,6 +181,17 @@ extension SymbolGraphTransformation {
         return extensionBlockSymbols
     }
 
+    /// Collects all relationships that touch any of the given extension symbols, removes them from the `symbolGraph`, and returns them separately.
+    ///
+    /// The relevant relationships in this context are of the follwing kinds:
+    ///
+    /// - `.extenisonTo`: the `source` must be of kind `.extension`
+    /// - `.conformsTo`: the `source` may be of kind `.extension`
+    /// - `.memberOf`: the `target` may be of kind `.extension`
+    ///
+    /// - Parameter extensionBlockSymbols: A mapping between Symbols of kind `.extension` and their precise identifiers.
+    ///
+    /// - Returns: The extracted relationships listed separately by kind.
     private static func extractRelationshipsTouchingExtensionBlockSymbols(from symbolGraph: inout SymbolGraph,
                                                            using extensionBlockSymbols: [String: SymbolGraph.Symbol])
         -> (extensionToRelationships: [SymbolGraph.Relationship],
@@ -156,6 +228,19 @@ extension SymbolGraphTransformation {
         return (extensionToRelationships, memberOfRelationships, conformsToRelationships)
     }
 
+    /// Synthesizes extended type symbols from the given `extensionBlockSymbols` and `extensoinToRelationships`.
+    ///
+    /// Creates symbols of the following kinds:
+    /// - ``SymbolKit/SymbolGraph/Symbol/KindIdentifier/extendedStruct``
+    /// - ``SymbolKit/SymbolGraph/Symbol/KindIdentifier/extemdedClass``
+    /// - ``SymbolKit/SymbolGraph/Symbol/KindIdentifier/extendedEnum``
+    /// - ``SymbolKit/SymbolGraph/Symbol/KindIdentifier/extendedProtocol``
+    ///
+    /// Each created symbol comprises one or more symbols of kind `.extension` that have an `.extensionTo` relationship with the
+    /// same type.
+    ///
+    /// - Returns: - the created extended type symbols keyed by their precise identifier, along with a bidirectional
+    /// mapping between the extended type symbols and the `.extension` symbols
     private static func synthesizeExtendedTypeSymbols<RS: Sequence>(using extensionBlockSymbols: [String: SymbolGraph.Symbol],
                                                      _ extensionToRelationships: RS)
     -> (extendedTypeSymbols: [String: SymbolGraph.Symbol],
@@ -209,7 +294,7 @@ extension SymbolGraphTransformation {
                 continue
             }
             
-            let extendedSymbolId = extensionTo.target.withExtensionPrefix
+            let extendedSymbolId = "s:e:" + extensionTo.target
             
             let symbol: SymbolGraph.Symbol = extendedTypeSymbols[extendedSymbolId]?.replacing(\.accessLevel) { oldSymbol in
                 max(oldSymbol.accessLevel, extensionBlockSymbol.accessLevel)
@@ -224,7 +309,14 @@ extension SymbolGraphTransformation {
         
         return (extendedTypeSymbols, extensionBlockToExtendedTypeMapping, extendedTypeToExtensionBlockMapping)
     }
-
+    
+    /// Updates the `anchor` of each relationship according to the given `keyMap`.
+    ///
+    /// If the `anchor` of a relationship cannot be found in the `keyMap`, the relationship is not modified.
+    ///
+    /// - Parameter anchor: usually either `\.source` or `\.target`
+    /// - Parameter relationships: the relationships to redirect
+    /// - Parameter keyMap: the mapping of old to new ids
     private static func redirect<RC: MutableCollection>(_ anchor: WritableKeyPath<SymbolGraph.Relationship, String>,
                                   of relationships: inout RC,
                                   using keyMap: [String: String]) where RC.Element == SymbolGraph.Relationship {
@@ -239,6 +331,11 @@ extension SymbolGraphTransformation {
         }
     }
 
+    /// Synthesizes extended module symbols and declaredIn relationships on the given `symbolGraph` based on the given `extendedTypeSymbolIds`.
+    ///
+    /// Creates one symbol of kind ``SymbolKit/SymbolGraph/Symbol/KindIdentifier/extendedModule`` for all extended type symbols that
+    /// extend a type declared in the same module. The extended type symbols are connected with the extended module symbols using relationships of kind
+    /// ``SymbolKit/SymbolGraph/Relationship/declaredIn``.
     private static func synthesizeExtendedModuleSymbolsAndDeclaredInRelationships<S: Sequence>(on symbolGraph: inout SymbolGraph, using extendedTypeSymbolIds: S) throws
     where S.Element == String {
         var moduleSymbolIdenitfiers: [String: String] = [:]
@@ -252,9 +349,8 @@ extension SymbolGraphTransformation {
                 continue
             }
             
-            let modulePrefix = try extendedTypeSymbol.identifier.precise.modulePrefix(for: extensionMixin.extendedModule)
-            let id = moduleSymbolIdenitfiers[modulePrefix] ?? "s:m:" + extendedTypeSymbol.identifier.precise
-            moduleSymbolIdenitfiers[modulePrefix] = id
+            let id = moduleSymbolIdenitfiers[extensionMixin.extendedModule] ?? "s:m:" + extendedTypeSymbol.identifier.precise
+            moduleSymbolIdenitfiers[extensionMixin.extendedModule] = id
             
             
             let symbol = symbolGraph.symbols[id]?.replacing(\.accessLevel) { oldSymbol in
@@ -276,120 +372,9 @@ extension SymbolGraphTransformation {
     }
 }
 
-// MARK: Custom Kind Identifiers
-
-extension SymbolGraph.Symbol.KindIdentifier {
-    static let extendedProtocol = Self(rawValue: "protocol.extension")
-    
-    static let extendedStructure = Self(rawValue: "struct.extension")
-    
-    static let extendedClass = Self(rawValue: "class.extension")
-    
-    static let extendedEnumeration = Self(rawValue: "enum.extension")
-    
-    init?(extending other: Self) {
-        switch other {
-        case .struct:
-            self = .extendedStructure
-        case .protocol:
-            self = .extendedProtocol
-        case .class:
-            self = .extendedClass
-        case .enum:
-            self = .extendedEnumeration
-        default:
-            return nil
-        }
-    }
-    
-    static func extendedType(for extensionBlock: SymbolGraph.Symbol) -> Self? {
-        guard let extensionMixin = extensionBlock.mixins[SymbolGraph.Symbol.Swift.Extension.mixinKey] as? SymbolGraph.Symbol.Swift.Extension else {
-            return nil
-        }
-        
-        guard let typeKind = extensionMixin.typeKind else {
-            return nil
-        }
-        
-        return Self(extending: typeKind)
-    }
-}
-
-extension SymbolGraph.Symbol.Kind {
-    static func extendedType(for extensionBlock: SymbolGraph.Symbol) -> Self {
-        let id = SymbolGraph.Symbol.KindIdentifier.extendedType(for: extensionBlock)
-        switch id {
-        case .some(.extendedProtocol):
-            return Self(parsedIdentifier: .extendedProtocol, displayName: "Extended Protocol")
-        case .some(.extendedStructure):
-            return Self(parsedIdentifier: .extendedStructure, displayName: "Extended Structure")
-        case .some(.extendedClass):
-            return Self(parsedIdentifier: .extendedClass, displayName: "Extended Class")
-        case .some(.extendedEnumeration):
-            return Self(parsedIdentifier: .extendedEnumeration, displayName: "Extended Enumeration")
-        default:
-            return Self(rawIdentifier: "unknown.extension", displayName: "Extended Type")
-        }
-    }
-}
-
-extension SymbolGraph.Symbol.KindIdentifier {
-    static let extendedModule = Self(rawValue: "module.extension")
-}
-
-extension SymbolGraph.Relationship.Kind {
-    static let declaredIn = Self(rawValue: "declaredIn")
-}
-
-// MARK: USR
-
-private typealias USR = String
-
-private extension USR {
-    func modulePrefix(for moduleName: String) throws -> USR {
-        if moduleName == "Swift" {
-            if self.hasPrefix("s:e:s:") {
-                return "s:e:s:"
-            } else if self.hasPrefix("s:") {
-                return "s:".withExtensionPrefix
-            } else {
-                throw IllegalUSRFormatException.noSwiftLanguagePrefix(self)
-            }
-        } else {
-            if let range = self.range(of: moduleName) {
-                return String(self[self.startIndex..<range.upperBound]).withExtensionPrefix
-            } else {
-                throw IllegalUSRFormatException.moduleNameNotIncluded(self, moduleName)
-            }
-        }
-    }
-    
-    var withExtensionPrefix: USR {
-        guard !self.hasPrefix("s:e:") else {
-            return self
-        }
-        
-        return "s:e:" + self
-    }
-    
-    enum IllegalUSRFormatException: Error {
-        case noSwiftLanguagePrefix(String)
-        case moduleNameNotIncluded(String, String)
-    }
-}
-
-// MARK: Apply to SymbolGraph
+// MARK: Apply Mappings to SymbolGraph
 
 private extension SymbolGraph {
-    mutating func apply<S: Sequence>(oneToManyMapping map: (SymbolGraph.Symbol) throws -> S) rethrows where S.Element == SymbolGraph.Symbol {
-        for (key, symbol) in self.symbols {
-            self.symbols.removeValue(forKey: key)
-            for newSymbol in try map(symbol) {
-                self.symbols[newSymbol.identifier.precise] = newSymbol
-            }
-        }
-    }
-    
     mutating func apply(compactMap include: (SymbolGraph.Symbol) throws -> SymbolGraph.Symbol?) rethrows {
         for (key, symbol) in self.symbols {
             self.symbols.removeValue(forKey: key)
@@ -400,7 +385,7 @@ private extension SymbolGraph {
     }
 }
 
-// MARK: Replacing Convenience
+// MARK: Replacing Convenience Functions
 
 private extension SymbolGraph.Symbol {
     func replacing<V>(_ keyPath: WritableKeyPath<Self, V>, with value: V) -> Self {
@@ -422,102 +407,4 @@ private extension SymbolGraph.Relationship {
         new[keyPath: keyPath] = value
         return new
     }
-}
-
-// MARK: AccessControl+Comparable
-
-extension SymbolGraph.Symbol.AccessControl: Comparable {
-    
-    public static var `private`: Self { Self(rawValue: "private") }
-    
-    public static var filePrivate: Self { Self(rawValue: "fileprivate") }
-    
-    public static var `internal`: Self { Self(rawValue: "internal") }
-    
-    public static var `public`: Self { Self(rawValue: "public") }
-    
-    public static var open: Self { Self(rawValue: "open") }
-    
-    public static func < (lhs: SymbolGraph.Symbol.AccessControl, rhs: SymbolGraph.Symbol.AccessControl) -> Bool {
-        switch (lhs, rhs) {
-        case (Self.private, Self.private):
-            return false
-        case (Self.private, Self.filePrivate):
-            return true
-        case (Self.private, Self.internal):
-            return true
-        case (Self.private, Self.public):
-            return true
-        case (Self.private, Self.open):
-            return true
-        case (Self.filePrivate, Self.private):
-            return false
-        case (Self.filePrivate, Self.filePrivate):
-            return false
-        case (Self.filePrivate, Self.internal):
-            return true
-        case (Self.filePrivate, Self.public):
-            return true
-        case (Self.filePrivate, Self.open):
-            return true
-        case (Self.internal, Self.private):
-            return false
-        case (Self.internal, Self.filePrivate):
-            return false
-        case (Self.internal, Self.internal):
-            return false
-        case (Self.internal, Self.public):
-            return true
-        case (Self.internal, Self.open):
-            return true
-        case (Self.public, Self.private):
-            return false
-        case (Self.public, Self.filePrivate):
-            return false
-        case (Self.public, Self.internal):
-            return false
-        case (Self.public, Self.public):
-            return false
-        case (Self.public, Self.open):
-            return true
-        case (Self.open, Self.private):
-            return false
-        case (Self.open, Self.filePrivate):
-            return false
-        case (Self.open, Self.internal):
-            return false
-        case (Self.open, Self.public):
-            return false
-        case (Self.open, Self.open):
-            return false
-        default:
-            assertionFailure("Unknown AccessControl case was used in comparison.")
-            return false
-        }
-    }
-}
-
-// MARK: DocCommentMixinHost
-
-private protocol DocCommentMixinHost {
-    var docComment: SymbolGraph.LineList? { get set }
-}
-
-extension SymbolGraph.Symbol: DocCommentMixinHost { }
-
-extension SymbolGraph.Relationship: DocCommentMixinHost {
-    fileprivate var docComment: SymbolGraph.LineList? {
-        get {
-            self[mixin: SymbolGraph.LineList.self]
-        }
-        set {
-            self[mixin: SymbolGraph.LineList.self] = newValue
-        }
-    }
-}
-
-// MARK: LineList+Mixin
-
-extension SymbolGraph.LineList: Mixin {
-    public static let mixinKey: String = "docComment"
 }
