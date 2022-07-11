@@ -48,7 +48,6 @@ struct SymbolGraphLoader {
         let loadingLock = Lock()
 
         var loadedGraphs = [URL: (usesExtensionSymbolFormat: Bool?, graph: SymbolKit.SymbolGraph)]()
-        let graphLoader = GraphCollector()
         var loadError: Error?
         let bundle = self.bundle
         let dataProvider = self.dataProvider
@@ -129,9 +128,11 @@ struct SymbolGraphLoader {
         
         let mergeStrategy = GraphCollector.MergeStrategy(extensionGraphAssociation: foundGraphUsingExtensionSymbolFormat ? .extendingGraph : .extendedGraph)
                 
+        let graphLoader = GraphCollector(strategy: mergeStrategy)
+        
         // feed the loaded graphs into the `graphLoader`
         for (url, (_, graph)) in loadedGraphs {
-            graphLoader.mergeSymbolGraph(graph, at: url, strategy: mergeStrategy)
+            graphLoader.mergeSymbolGraph(graph, at: url)
         }
         
         // In case any of the symbol graphs errors, re-throw the error.
@@ -140,7 +141,7 @@ struct SymbolGraphLoader {
             throw loadError
         }
         
-        (self.unifiedGraphs, self.graphLocations) = graphLoader.finishLoading(strategy: mergeStrategy)
+        (self.unifiedGraphs, self.graphLocations) = graphLoader.finishLoading()
     }
     
     private enum LoadingError: Error {
