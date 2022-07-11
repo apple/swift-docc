@@ -45,7 +45,7 @@ public enum RenderBlockContent: Equatable {
     /// A heading with the given level.
     case heading(level: Int, text: String, anchor: String?)
     /// A list that contains ordered items.
-    case orderedList(items: [ListItem])
+    case orderedList(startIndex: UInt, items: [ListItem])
     /// A list that contains unordered items.
     case unorderedList(items: [ListItem])
     
@@ -230,7 +230,7 @@ public enum RenderBlockContent: Equatable {
 extension RenderBlockContent: Codable {
     private enum CodingKeys: CodingKey {
         case type
-        case inlineContent, content, caption, style, name, syntax, code, level, text, items, media, runtimePreview, anchor, summary, example, metadata
+        case inlineContent, content, caption, style, name, syntax, code, level, text, items, media, runtimePreview, anchor, summary, example, metadata, start
         case request, response
         case header, rows
     }
@@ -257,7 +257,7 @@ extension RenderBlockContent: Codable {
         case .heading:
             self = try .heading(level: container.decode(Int.self, forKey: .level), text: container.decode(String.self, forKey: .text), anchor: container.decodeIfPresent(String.self, forKey: .anchor))
         case .orderedList:
-            self = try .orderedList(items: container.decode([ListItem].self, forKey: .items))
+            self = try .orderedList(startIndex: container.decodeIfPresent(UInt.self, forKey: .start) ?? 1, items: container.decode([ListItem].self, forKey: .items))
         case .unorderedList:
             self = try .unorderedList(items: container.decode([ListItem].self, forKey: .items))
         case .step:
@@ -320,7 +320,10 @@ extension RenderBlockContent: Codable {
             try container.encode(level, forKey: .level)
             try container.encode(text, forKey: .text)
             try container.encode(anchor, forKey: .anchor)
-        case .orderedList(let items):
+        case .orderedList(let start, let items):
+            if start != 1 {
+                try container.encode(start, forKey: .start)
+            }
             try container.encode(items, forKey: .items)
         case .unorderedList(let items):
             try container.encode(items, forKey: .items)

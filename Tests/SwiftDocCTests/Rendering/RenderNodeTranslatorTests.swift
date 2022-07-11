@@ -102,7 +102,8 @@ class RenderNodeTranslatorTests: XCTestCase {
         }
         
         XCTAssert(discussion.content.contains(where: { block in
-            if case .orderedList(items: let items) = block,
+            if case .orderedList(startIndex: let start, items: let items) = block,
+                start == 1,
                 items.count == 3,
                 case .paragraph([.text("One ordered")])? = items[0].content.first,
                 case .paragraph([.text("Two ordered")])? = items[1].content.first,
@@ -120,6 +121,20 @@ class RenderNodeTranslatorTests: XCTestCase {
                 case .paragraph([.text("One unordered")])? = items[0].content.first,
                 case .paragraph([.text("Two unordered")])? = items[1].content.first,
                 case .paragraph([.text("Three unordered")])? = items[2].content.first
+            {
+                return true
+            } else {
+                return false
+            }
+        }))
+
+        XCTAssert(discussion.content.contains(where: { block in
+            if case .orderedList(startIndex: let start, items: let items) = block,
+                start == 2,
+                items.count == 3,
+                case .paragraph([.text("Two ordered with custom start")])? = items[0].content.first,
+                case .paragraph([.text("Three ordered with custom start")])? = items[1].content.first,
+                case .paragraph([.text("Four ordered with custom start")])? = items[2].content.first
             {
                 return true
             } else {

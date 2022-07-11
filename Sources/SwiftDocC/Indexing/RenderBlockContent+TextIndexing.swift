@@ -22,7 +22,7 @@ extension RenderBlockContent: TextIndexing {
         switch self {
         case let .aside(_, blocks):
             return blocks.rawIndexableTextContent(references: references)
-        case let .orderedList(items):
+        case let .orderedList(_, items):
             return items.map {
                 $0.content.rawIndexableTextContent(references: references)
             }.joined(separator: " ")
