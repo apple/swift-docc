@@ -38,6 +38,15 @@
         }
       },
       {
+        "package": "SymbolKit",
+        "repositoryURL": "https://github.com/themomax/swift-docc-symbolkit",
+        "state": {
+          "branch": "docc-extensions-to-external-types-base",
+          "revision": "e8d0c4793554efe079d571775dae0e056b9268ee",
+          "version": null
+        }
+      },
+      {
         "package": "CLMDB",
         "repositoryURL": "https://github.com/apple/swift-lmdb.git",
         "state": {

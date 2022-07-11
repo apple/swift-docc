@@ -574,7 +574,7 @@ private enum TypeOrExtensionDeclarationNameExtractionSM {
             self = .foundIdentifier(index+1)
         case let (.foundIdentifier(index), .text, "."):
             self = .expectIdentifier(index+1)
-        case let (.foundIdentifier(index), .text, " "):
+        case let (.foundIdentifier(index), .text, _):
             self = .done(.init(uncheckedBounds: (Self.expectedNameStartIndex, index)))
         case let (.done(namerange), _, _):
             self = .done(namerange)
