@@ -43,6 +43,8 @@ struct SymbolGraphLoader {
 
     /// Loads all symbol graphs in the given bundle.
     ///
+    /// - Parameter decoder: A potentially customized `JSONDecoder` to be used for decoding. This decoder is only
+    /// used if the `decodingStrategy` is set to `concurrentlyAllFiles`!
     /// - Throws: If loading and decoding any of the symbol graph files throws, this method re-throws one of the encountered errors.
     mutating func loadAll(using decoder: JSONDecoder = JSONDecoder()) throws {
         let loadingLock = Lock()
