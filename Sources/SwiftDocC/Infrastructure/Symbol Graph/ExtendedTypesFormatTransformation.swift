@@ -16,6 +16,102 @@ import SymbolKit
 enum ExtendedTypesFormatTransformation { }
 
 extension ExtendedTypesFormatTransformation {
+    /// Merge symbols of kind ``SymbolKit/Symbolgraph/Symbol/KindIdentifier/extendedModule`` that represent the
+    /// same module.
+    ///
+    /// When using the Extended Type Symbol Format on normal (i.e. non-unified) symbol graphs, each of the extension symbol graphs
+    /// might contain an extended module symbol representing the same module. When merging all symbol graphs from one primary
+    /// module into one `UnifiedSymbolGraph`, this may result in this unified graph having more than one extended module symbol
+    /// with the same name. This function merges these duplicate extended module symbols and redirects the `declaredIn` relationships
+    /// accordingly. As a result, the final graph will only contain one extended module symbol for each extended module.
+    ///
+    /// This transformation is relevant in the following case. Consider a project of three modules, `A`, `B`, and `C`, where `B` imports
+    /// `A`, and `C` imports `A` and `B`.
+    ///
+    /// ```swift
+    /// // Module A
+    /// public struct AStruct { }
+    ///
+    /// // Module B
+    /// import A
+    ///
+    /// public extension AStruct {
+    ///     struct BStruct { }
+    /// }
+    ///
+    /// public protocol BProtocol {}
+    ///
+    /// // Module C
+    /// import A
+    /// import B
+    ///
+    /// public extension AStruct.BStruct {
+    ///     struct CStruct { }
+    /// }
+    ///
+    /// public extension BProtocol {
+    ///     func foo() { }
+    /// }
+    /// ```
+    ///
+    /// The Symbol Graph Files generated for module `C` are `C.symbols.json`, `C@A.symbols.json`, and
+    /// `C@B.symbols.json`.
+    ///
+    /// `CStruct`, as well as the respective `swift.extension` symbol are part of
+    /// `C@A.symbols.json`, as they are part of a top-level symbol declared in module `A`. However, since `CStruct`'s
+    /// direct partent type is `BStruct`, which is declared in module `B`. Therefore, `CStruct` is considered an extension
+    /// to module `B`, which is correctly stated in the `swiftExtension.extendedModule` property. Thus, the transformed
+    /// symbol graph for `C@A.symbols.json` contains an extended module symbol for module `B`.
+    ///
+    /// `BProtocol.foo()`, as well as the respective `swift.extension` symbol are obviously part of `C@B.symbols.json`.
+    /// Thus, this transformed symbol graph also contains an extended module symbol for module `B`.
+    ///
+    /// If one decides to merge the transformed symbol graphs for files `C.symbols.json`, `C@A.symbols.json`, and
+    /// `C@B.symbols.json`, the resulting unified graph will have two extended module symbols for module `B`, which is
+    /// undesirable. This method should therefore be applied to the unified symbol graph after all symbol graphs resulting from
+    /// module `C` have been merged.
+    static func mergeExtendedModuleSymbolsFromDifferentFiles(_ symbolGraph: UnifiedSymbolGraph) {
+        var canonicalSymbolByModuleName: [String: UnifiedSymbolGraph.Symbol] = [:]
+        var keyMap: [String: String] = [:]
+        
+        // choose canonical extended module symbol for each moduleName
+        for symbol in symbolGraph.symbols.values where symbol.kindIdentifier == "swift." + SymbolGraph.Symbol.KindIdentifier.extendedModule.identifier {
+            if let canonical = canonicalSymbolByModuleName[symbol.title] {
+                // merge accesslevel
+                for (selector, level) in symbol.accessLevel {
+                    if let oldLevel = canonical.accessLevel[selector] {
+                        canonical.accessLevel[selector] = max(oldLevel, level)
+                    } else {
+                        canonical.accessLevel[selector] = level
+                    }
+                }
+                
+                canonicalSymbolByModuleName[symbol.title] = canonical
+                keyMap[symbol.uniqueIdentifier] = canonical.uniqueIdentifier
+            } else {
+                canonicalSymbolByModuleName[symbol.title] = symbol
+            }
+        }
+        
+        // delete extended module symbols that were not chosen
+        for alternativeId in keyMap.keys {
+            symbolGraph.symbols.removeValue(forKey: alternativeId)
+        }
+        
+        // remap `declaredIn` relationships to the respective chosen extended module symbol
+        
+        // this should only apply to `declaredIn` relationships
+        for (selector, var relationships) in symbolGraph.relationshipsByLanguage {
+            redirect(\.target, of: &relationships, using: keyMap)
+            
+            symbolGraph.relationshipsByLanguage[selector] = relationships
+        }
+        
+        redirect(\.target, of: &symbolGraph.orphanRelationships, using: keyMap)
+    }
+}
+
+extension ExtendedTypesFormatTransformation {
     /// Convert from the extension block symbol format to the extended type symbol format.
     ///
     /// First, the function checks if there are any symbols of kind `.extension` in the graph.
@@ -75,7 +171,7 @@ extension ExtendedTypesFormatTransformation {
     ///                                             │n
     /// ┌────────────┐                      ┌───────┴─────┐                    ┌────────────────┐
     /// │swift.module│                      │Extended Type│                    │Extension Member│
-    /// │ .extension │◄────extensionTo──────┤   Symbol    │◄──────memberOf─────┤     Symbol     │
+    /// │ .extension │◄────declaredIn───────┤   Symbol    │◄──────memberOf─────┤     Symbol     │
     /// └────────────┘ 1                   n└─────────────┘ 1                n └────────────────┘
     /// ```
     ///
@@ -289,12 +385,16 @@ extension ExtendedTypesFormatTransformation {
                                       mixins: newMixins)
         }
         
+        // mapping from the extensionTo.target to the TYPE_KIND.extension symbol's identifier.precise
+        var extendedTypeSymbolIdentifiers: [String: String] = [:]
+        
         for extensionTo in extensionToRelationships {
             guard let extensionBlockSymbol = extensionBlockSymbols[extensionTo.source] else {
                 continue
             }
             
-            let extendedSymbolId = "s:e:" + extensionTo.target
+            let extendedSymbolId = extendedTypeSymbolIdentifiers[extensionTo.target] ?? extensionBlockSymbol.identifier.precise
+            extendedTypeSymbolIdentifiers[extensionTo.target] = extendedSymbolId
             
             let symbol: SymbolGraph.Symbol = extendedTypeSymbols[extendedSymbolId]?.replacing(\.accessLevel) { oldSymbol in
                 max(oldSymbol.accessLevel, extensionBlockSymbol.accessLevel)
@@ -338,6 +438,7 @@ extension ExtendedTypesFormatTransformation {
     /// ``SymbolKit/SymbolGraph/Relationship/declaredIn``.
     private static func synthesizeExtendedModuleSymbolsAndDeclaredInRelationships<S: Sequence>(on symbolGraph: inout SymbolGraph, using extendedTypeSymbolIds: S) throws
     where S.Element == String {
+        // extensionMixin.extendedModule to module.extension symbol's identifier.precise mapping
         var moduleSymbolIdenitfiers: [String: String] = [:]
         
         for extendedTypeSymbolId in extendedTypeSymbolIds {

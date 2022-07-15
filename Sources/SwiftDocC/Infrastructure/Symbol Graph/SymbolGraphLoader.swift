@@ -128,7 +128,9 @@ struct SymbolGraphLoader {
             throw LoadingError.mixedGraphFormats
         }
         
-        let mergeStrategy = GraphCollector.MergeStrategy(extensionGraphAssociation: foundGraphUsingExtensionSymbolFormat ? .extendingGraph : .extendedGraph)
+        let usingExtensionSymbolFormat = foundGraphUsingExtensionSymbolFormat
+        
+        let mergeStrategy = GraphCollector.MergeStrategy(extensionGraphAssociation: usingExtensionSymbolFormat ? .extendingGraph : .extendedGraph)
                 
         let graphLoader = GraphCollector(strategy: mergeStrategy)
         
@@ -144,6 +146,12 @@ struct SymbolGraphLoader {
         }
         
         (self.unifiedGraphs, self.graphLocations) = graphLoader.finishLoading()
+        
+        if usingExtensionSymbolFormat {
+            for (_, graph) in self.unifiedGraphs {
+                ExtendedTypesFormatTransformation.mergeExtendedModuleSymbolsFromDifferentFiles(graph)
+            }
+        }
     }
     
     private enum LoadingError: Error {
