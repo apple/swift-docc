@@ -2577,7 +2577,16 @@ public class DocumentationContext: DocumentationContextDataProviderDelegate {
         // Check if `destination` is a known absolute reference URL.
         if let match = referencesIndex[path] { return match }
         
-        // Check if `destination` is a known absolute symbol path.
+        // Check if `destination` is a known absolute symbol path...
+        if !path.hasPrefix("/") {
+            // ...in the parent's module
+            let parentModule = parent.pathComponents[2]
+            let referenceURLString = "doc://\(parent.bundleIdentifier)/documentation/\(parentModule)/\(path)"
+            if let reference = referencesIndex[referenceURLString] {
+                return reference
+            }
+        }
+        // ...globally
         let referenceURLString = "doc://\(parent.bundleIdentifier)/documentation/\(path.hasPrefix("/") ? String(path.dropFirst()) : path)"
         return referencesIndex[referenceURLString]
     }
