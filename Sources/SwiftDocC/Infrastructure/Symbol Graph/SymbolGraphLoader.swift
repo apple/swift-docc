@@ -83,7 +83,7 @@ struct SymbolGraphLoader {
                 // custom structure where all extensions to the same type are collected in
                 // one extended type symbol
                 if !isMainSymbolGraph {
-                    let containsExtensionSymbols = try ExtendedTypesFormatTransformation.transformExtensionBlockFormatToExtendedTypeFormat(&symbolGraph, moduleName: moduleName)
+                    let containsExtensionSymbols = try ExtendedTypesFormatTransformation.transformExtensionBlockFormatToExtendedTypeFormat(&symbolGraph)
                     
                     // empty symbol graphs are ambiguous (but shouldn't exist)
                     usesExtensionSymbolFormat = symbolGraph.symbols.isEmpty ? nil : containsExtensionSymbols

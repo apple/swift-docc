@@ -176,18 +176,17 @@ extension ExtendedTypesFormatTransformation {
     /// ```
     ///
     /// - Parameter symbolGraph: An (extension) symbol graph that should use the extensoin block symbol format.
-    /// - Parameter moduleName: The name of the extend**ing** module.
     /// - Returns: Returns whether the transformation was applied (the `symbolGraph` was an extension graph
     /// in the extended type symbol format) or not
-    static func transformExtensionBlockFormatToExtendedTypeFormat(_ symbolGraph: inout SymbolGraph, moduleName: String) throws -> Bool {
+    static func transformExtensionBlockFormatToExtendedTypeFormat(_ symbolGraph: inout SymbolGraph) throws -> Bool {
         var extensionBlockSymbols = extractExtensionBlockSymbols(from: &symbolGraph)
         
         guard !extensionBlockSymbols.isEmpty else {
             return false
         }
         
-        prependModuleNameToPathComponents(&symbolGraph.symbols.values, moduleName)
-        prependModuleNameToPathComponents(&extensionBlockSymbols.values, moduleName)
+        prependModuleNameToPathComponents(&symbolGraph.symbols.values)
+        prependModuleNameToPathComponents(&extensionBlockSymbols.values)
         
         var (extensionToRelationships,
              memberOfRelationships,
@@ -206,7 +205,10 @@ extension ExtendedTypesFormatTransformation {
                 return []
             }
             
-            if let winner = relevantExtensionBlockSymbols.max(by: { a, b in (a.docComment?.lines.count ?? 0) < (b.docComment?.lines.count ?? 0) }) {
+            // we sort the symbols here because their order is not guaranteed to stay the same
+            // accross compilation processes and we always want to choose the same doc comment
+            // in case there are multiple candidates with maximum number of lines
+            if let winner = relevantExtensionBlockSymbols.sorted(by: \.identifier.precise).max(by: { a, b in (a.docComment?.lines.count ?? 0) < (b.docComment?.lines.count ?? 0) }) {
                 return [winner]
             } else {
                 return []
@@ -251,11 +253,16 @@ extension ExtendedTypesFormatTransformation {
         }
     }
     
-    /// Adds the given `moduleName` to the beginning of the `pathComponents` array of all `symbols`.
-    private static func prependModuleNameToPathComponents<S: MutableCollection>(_ symbols: inout S, _ moduleName: String) where S.Element == SymbolGraph.Symbol {
+    /// Adds the `extendedModule` name from the `swiftExtension` mixin to the beginning of the `pathComponents` array of all `symbols`.
+    private static func prependModuleNameToPathComponents<S: MutableCollection>(_ symbols: inout S) where S.Element == SymbolGraph.Symbol {
         for i in symbols.indices {
             let symbol = symbols[i]
-            symbols[i] = symbol.replacing(\.pathComponents, with: [moduleName] + symbol.pathComponents)
+            
+            guard let extendedModuleName = symbol[mixin: SymbolGraph.Symbol.Swift.Extension.self]?.extendedModule else {
+                continue
+            }
+            
+            symbols[i] = symbol.replacing(\.pathComponents, with: [extendedModuleName] + symbol.pathComponents)
         }
     }
 
@@ -388,7 +395,10 @@ extension ExtendedTypesFormatTransformation {
         // mapping from the extensionTo.target to the TYPE_KIND.extension symbol's identifier.precise
         var extendedTypeSymbolIdentifiers: [String: String] = [:]
         
-        for extensionTo in extensionToRelationships {
+        // we sort the relationships here because their order is not guaranteed to stay the same
+        // accross compilation processes and choosing the same base symbol (and its USR) is important
+        // to keeping (colliding) links stable
+        for extensionTo in extensionToRelationships.sorted(by: \.source) {
             guard let extensionBlockSymbol = extensionBlockSymbols[extensionTo.source] else {
                 continue
             }
@@ -441,7 +451,10 @@ extension ExtendedTypesFormatTransformation {
         // extensionMixin.extendedModule to module.extension symbol's identifier.precise mapping
         var moduleSymbolIdenitfiers: [String: String] = [:]
         
-        for extendedTypeSymbolId in extendedTypeSymbolIds {
+        // we sort the symbols here because their order is not guaranteed to stay the same
+        // accross compilation processes and choosing the same base symbol (and its USR) is important
+        // to keeping (colliding) links stable
+        for extendedTypeSymbolId in extendedTypeSymbolIds.sorted() {
             guard let extendedTypeSymbol = symbolGraph.symbols[extendedTypeSymbolId] else {
                 continue
             }
