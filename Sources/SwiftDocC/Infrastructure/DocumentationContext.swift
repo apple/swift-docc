@@ -1036,15 +1036,63 @@ public class DocumentationContext: DocumentationContextDataProviderDelegate {
             let moduleName: String
             var languages: Set<SourceLanguage>
         }
-        var pathCollisionInfo = [String: [PathCollisionInfo]]()
+        var pathCollisionInfo = [[String]: [PathCollisionInfo]]()
         pathCollisionInfo.reserveCapacity(totalSymbolCount)
         
         // Group symbols by path from all of the available symbol graphs
         for (moduleName, symbolGraph) in unifiedGraphs {
             let symbols = Array(symbolGraph.symbols.values)
-            let pathsAndLanguages: [[(String, SourceLanguage)]] = symbols.concurrentMap { referencesWithoutDisambiguationFor($0, moduleName: moduleName, bundle: bundle).map {
-                ($0.path.lowercased(), $0.sourceLanguage)
-            } }
+            
+            let referenceMap = symbols.concurrentMap { symbol in
+                (symbol, referencesWithoutDisambiguationFor(symbol, moduleName: moduleName, bundle: bundle))
+            }.reduce(into: [String: [SourceLanguage: ResolvedTopicReference]](), { result, next in
+                let (symbol, references) = next
+                for reference in references {
+                    result[symbol.uniqueIdentifier, default: [:]][reference.sourceLanguage] = reference
+                }
+            })
+            
+            let parentMap = symbolGraph.relationshipsByLanguage.values.reduce(into: [String: String](), { parentMap, relationships in
+                for relationship in relationships {
+                    switch relationship.kind {
+                    case .memberOf, .requirementOf, .declaredIn:
+                        parentMap[relationship.source] = relationship.target
+                    default:
+                        break
+                    }
+                }
+            })
+            
+            // "/" + "documentation" + MODULE_NAME + TOP-LEVEL-SYMBOL_NAME
+            let topLevelSymbolPathLength = 4
+            
+            let pathsAndLanguages: [[([String], SourceLanguage)]] = symbols.concurrentMap { symbol in
+                guard let references = referenceMap[symbol.uniqueIdentifier] else {
+                    return []
+                }
+                
+                return references.map { language, reference in
+                    var prefixLength: Int
+                    if let parentId = parentMap[symbol.uniqueIdentifier],
+                       let parentReference = referenceMap[parentId]?[language] ?? referenceMap[parentId]?.values.first {
+                        // This is a child of some other symbol
+                        prefixLength = parentReference.pathComponents.count
+                    } else {
+                        // This is a top-level symbol
+                        prefixLength = topLevelSymbolPathLength-1
+                    }
+                    
+                    // PathComponents can have prefixes which are not known locally. In that case,
+                    // the "empty" segments will be cut out later on. We follow the same logic here, as otherwise
+                    // some collisions would not be detected.
+                    // E.g. consider an extension to an external nested type `SomeModule.SomeStruct.SomeStruct`. The
+                    // parent of this extended type symbol is `SomeModule`, however, the path for the extended type symbol
+                    // is `SomeModule/SomeStruct/SomeStruct`, later on, this will change to `SomeModule/SomeStruct`. Now, if
+                    // we also extend `SomeModule.SomeStruct`, the paths for both extensions could collide. To recognize (and resolve)
+                    // the collision here, we work with the same, shortened paths.
+                    return ((reference.pathComponents[0..<prefixLength] + [reference.pathComponents.last!]).map{ $0.lowercased() }, reference.sourceLanguage)
+                }
+            }
 
             for (symbol, symbolPathsAndLanguages) in zip(symbols, pathsAndLanguages) {
                 for (path, language) in symbolPathsAndLanguages {
