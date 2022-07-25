@@ -2578,7 +2578,7 @@ public class DocumentationContext: DocumentationContextDataProviderDelegate {
         if let match = referencesIndex[path] { return match }
         
         // Check if `destination` is a known absolute symbol path...
-        if !path.hasPrefix("/") {
+        if !path.hasPrefix("/") && parent.pathComponents.count > 2 {
             // ...in the parent's module
             let parentModule = parent.pathComponents[2]
             let referenceURLString = "doc://\(parent.bundleIdentifier)/documentation/\(parentModule)/\(path)"
