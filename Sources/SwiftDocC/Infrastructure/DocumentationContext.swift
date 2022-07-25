@@ -1052,19 +1052,21 @@ public class DocumentationContext: DocumentationContextDataProviderDelegate {
                 }
             })
             
-            let parentMap = symbolGraph.relationshipsByLanguage.values.reduce(into: [String: String](), { parentMap, relationships in
+            let parentMap = symbolGraph.relationshipsByLanguage.reduce(into: [String: [SourceLanguage: String]](), { parentMap, next in
+                let (selector, relationships) = next
+                guard let language = SourceLanguage(knownLanguageIdentifier: selector.interfaceLanguage) else {
+                    return
+                }
+                
                 for relationship in relationships {
                     switch relationship.kind {
                     case .memberOf, .requirementOf, .declaredIn:
-                        parentMap[relationship.source] = relationship.target
+                        parentMap[relationship.source, default: [:]][language] = relationship.target
                     default:
                         break
                     }
                 }
             })
-            
-            // "/" + "documentation" + MODULE_NAME + TOP-LEVEL-SYMBOL_NAME
-            let topLevelSymbolPathLength = 4
             
             let pathsAndLanguages: [[([String], SourceLanguage)]] = symbols.concurrentMap { symbol in
                 guard let references = referenceMap[symbol.uniqueIdentifier] else {
@@ -1073,13 +1075,13 @@ public class DocumentationContext: DocumentationContextDataProviderDelegate {
                 
                 return references.map { language, reference in
                     var prefixLength: Int
-                    if let parentId = parentMap[symbol.uniqueIdentifier],
+                    if let parentId = parentMap[symbol.uniqueIdentifier]?[language],
                        let parentReference = referenceMap[parentId]?[language] ?? referenceMap[parentId]?.values.first {
                         // This is a child of some other symbol
                         prefixLength = parentReference.pathComponents.count
                     } else {
-                        // This is a top-level symbol
-                        prefixLength = topLevelSymbolPathLength-1
+                        // This is a top-level symbol or another symbol without parent (e.g. default implementation)
+                        prefixLength = reference.pathComponents.count-1
                     }
                     
                     // PathComponents can have prefixes which are not known locally. In that case,
