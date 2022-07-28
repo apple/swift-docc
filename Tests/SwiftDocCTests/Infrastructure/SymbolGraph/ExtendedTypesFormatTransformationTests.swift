@@ -14,6 +14,8 @@ import SymbolKit
 @testable import SwiftDocC
 
 class ExtendedTypesFormatTransformationTests: XCTestCase {
+    /// Tests the general transformation structure of ``ExtendedTypesFormatTransformation/transformExtensionBlockFormatToExtendedTypeFormat(_:)``
+    /// including the edge case that one extension graph contains extensions for two modules.
     func testExtendedTypesFormatStructure() throws {
         let contents = twoExtensionBlockSymbolsExtendingSameType(extendedModule: "A", extendedType: "A", withExtensionMembers: true)
                         + twoExtensionBlockSymbolsExtendingSameType(extendedModule: "A", extendedType: "ATwo", withExtensionMembers: true)
@@ -23,8 +25,10 @@ class ExtendedTypesFormatTransformationTests: XCTestCase {
                                     symbols: contents.symbols,
                                     relationships: contents.relationships)
         
+        // check the transformation recognizes the swift.extension symbols & transform
         XCTAssert(try ExtendedTypesFormatTransformation.transformExtensionBlockFormatToExtendedTypeFormat(&graph))
         
+        // check the expected symbols exist
         let extendedModuleA = try XCTUnwrap(graph.symbols.values.first(where: { symbol in symbol.kind.identifier == .extendedModule && symbol.title == "A" }))
         let extendedModuleB = try XCTUnwrap(graph.symbols.values.first(where: { symbol in symbol.kind.identifier == .extendedModule && symbol.title == "B" }))
         
@@ -39,6 +43,7 @@ class ExtendedTypesFormatTransformationTests: XCTestCase {
         let addedMemberSymbolsTypeB = graph.symbols.values.filter({ symbol in symbol.kind.identifier == .property && symbol.pathComponents[symbol.pathComponents.count-2] == "B" })
         XCTAssertEqual(addedMemberSymbolsTypeB.count, 2)
         
+        // check the symbols are connected as expected
         [
             SymbolGraph.Relationship(source: addedMemberSymbolsTypeA[0].identifier.precise, target: extendedTypeA.identifier.precise, kind: .memberOf, targetFallback: nil),
             SymbolGraph.Relationship(source: addedMemberSymbolsTypeA[1].identifier.precise, target: extendedTypeA.identifier.precise, kind: .memberOf, targetFallback: nil),
@@ -56,13 +61,37 @@ class ExtendedTypesFormatTransformationTests: XCTestCase {
             }))
         }
         
-        
+        // check there are no additional elements
         XCTAssertEqual(graph.symbols.count, 2 /* extended modules */ + 3 /* extended types */ + 6 /* added properties */)
         XCTAssertEqual(graph.relationships.count, 3 /* .declaredIn */ + 6 /* .memberOf */)
+        
+        // check correct module name was prepended to pathComponents
+        ([extendedModuleA, extendedTypeA, extendedTypeATwo]
+         + addedMemberSymbolsTypeA
+         + addedMemberSymbolsTypeATwo).forEach { symbol in
+            XCTAssertEqual(symbol.pathComponents.first, "A")
+        }
+        
+        ([extendedModuleB, extendedTypeB]
+         + addedMemberSymbolsTypeB).forEach { symbol in
+            XCTAssertEqual(symbol.pathComponents.first, "B")
+        }
     }
     
+    /// Tests that an extended type symbol always uses the documentation comment with the highest number
+    /// of lines from the relevant extension block symbols.
+    ///
+    /// ```swift
+    /// /// This is shorter...won't be chosen.
+    /// extension A { /* ... */ }
+    ///
+    /// /// This is the longest as it
+    /// /// has two lines. It will be chosen.
+    /// extension A { /* ... */ }
+    /// ```
     func testDocumentationForExtendedTypeSymbolUsesLongestAvailableDocumenation() throws {
-        for permutation in allPermutations(of: twoExtensionBlockSymbolsExtendingSameType(sameDocCommentLength: false).symbols, and: twoExtensionBlockSymbolsExtendingSameType(sameDocCommentLength: false).relationships) {
+        let content = twoExtensionBlockSymbolsExtendingSameType(sameDocCommentLength: false)
+        for permutation in allPermutations(of: content.symbols, and: content.relationships) {
             var graph = makeSymbolGraph(moduleName: "Module", symbols: permutation.symbols, relationships: permutation.relationships)
             _ = try ExtendedTypesFormatTransformation.transformExtensionBlockFormatToExtendedTypeFormat(&graph)
             
@@ -71,36 +100,47 @@ class ExtendedTypesFormatTransformationTests: XCTestCase {
         }
     }
     
+    /// Tests that extended type symbols are always based on the same extension block symbol (if there is more than
+    /// one for the same type), which influences the extended type symbol's unique identifier.
     func testBaseSymbolForExtendedTypeSymbolIsStable() throws {
-        for permutation in allPermutations(of: twoExtensionBlockSymbolsExtendingSameType().symbols, and: twoExtensionBlockSymbolsExtendingSameType().relationships) {
+        let content = twoExtensionBlockSymbolsExtendingSameType()
+        for permutation in allPermutations(of: content.symbols, and: content.relationships) {
             var graph = makeSymbolGraph(moduleName: "Module", symbols: permutation.symbols, relationships: permutation.relationships)
             _ = try ExtendedTypesFormatTransformation.transformExtensionBlockFormatToExtendedTypeFormat(&graph)
             
             let extendedTypeSymbol = try XCTUnwrap(graph.symbols.values.first(where: { symbol in symbol.kind.identifier == .extendedStructure }))
-            XCTAssertEqual(extendedTypeSymbol.identifier.precise, "s:e:s:AAlong") // long < short (alphabetically)
+            XCTAssertEqual(extendedTypeSymbol.identifier.precise, "s:e:s:AAone") // one < two (alphabetically)
         }
     }
     
+    /// Tests that extended module symbols are always based on the same extended type symbol (if there is more than
+    /// one for the same module), which influences the extended module symbol's unique identifier.
     func testBaseSymbolForExtendedModuleSymbolIsStable() throws {
-        for permutation in allPermutations(of: twoExtensionBlockSymbolsExtendingSameType().symbols, and: twoExtensionBlockSymbolsExtendingSameType().relationships) {
+        let content = twoExtensionBlockSymbolsExtendingSameType()
+        for permutation in allPermutations(of: content.symbols, and: content.relationships) {
             var graph = makeSymbolGraph(moduleName: "Module", symbols: permutation.symbols, relationships: permutation.relationships)
             _ = try ExtendedTypesFormatTransformation.transformExtensionBlockFormatToExtendedTypeFormat(&graph)
             
             let extendedModuleSymbol = try XCTUnwrap(graph.symbols.values.first(where: { symbol in symbol.kind.identifier == .extendedModule }))
-            XCTAssertEqual(extendedModuleSymbol.identifier.precise, "s:m:s:e:s:AAlong") // long < short (alphabetically)
+            XCTAssertEqual(extendedModuleSymbol.identifier.precise, "s:m:s:e:s:AAone") // one < two (alphabetically)
         }
     }
     
+    /// Tests that an extended type symbol always uses the same documentation comment if there is more than one relevant
+    /// extension block symbol that features the highest number of lines in its doc-comment.
     func testDocumentationForExtendedTypeSymbolIsStable() throws {
-        for permutation in allPermutations(of: twoExtensionBlockSymbolsExtendingSameType(sameDocCommentLength: true).symbols, and: twoExtensionBlockSymbolsExtendingSameType(sameDocCommentLength: true).relationships) {
+        let content = twoExtensionBlockSymbolsExtendingSameType(sameDocCommentLength: true)
+        for permutation in allPermutations(of: content.symbols, and: content.relationships) {
             var graph = makeSymbolGraph(moduleName: "Module", symbols: permutation.symbols, relationships: permutation.relationships)
             _ = try ExtendedTypesFormatTransformation.transformExtensionBlockFormatToExtendedTypeFormat(&graph)
             
             let extendedTypeSymbol = try XCTUnwrap(graph.symbols.values.first(where: { symbol in symbol.kind.identifier == .extendedStructure }))
-            XCTAssertEqual(extendedTypeSymbol.docComment?.lines.first?.text, "two") // long < short (alphabetically)
+            XCTAssertEqual(extendedTypeSymbol.docComment?.lines.first?.text, "one line") // one < two (alphabetically)
         }
     }
     
+    /// Tests that if a unified symbol graph contains more than one extended module symbols for the same module, these extended
+    /// module symbols are merged into one and that this symbol's identifier does not depend on the graph's order.
     func testCrossModuleNestedTypeExtensionsHandling() throws {
         let aAtB = (graph: makeSymbolGraph(moduleName: "A", symbols: [
             .init(identifier: .init(precise: "s:m:s:e:s:Bone", interfaceLanguage: "swift"),
@@ -157,7 +197,7 @@ class ExtendedTypesFormatTransformationTests: XCTestCase {
     }
     
     private func twoExtensionBlockSymbolsExtendingSameType(extendedModule: String = "A", extendedType: String = "A", withExtensionMembers: Bool = false, sameDocCommentLength: Bool = true) -> SymbolGraphContents {
-        SymbolGraphContents(symbols: [.init(identifier: .init(precise: "s:e:s:\(extendedModule)\(extendedType)long", interfaceLanguage: "swift"),
+        SymbolGraphContents(symbols: [.init(identifier: .init(precise: "s:e:s:\(extendedModule)\(extendedType)two", interfaceLanguage: "swift"),
               names: .init(title: "\(extendedType)", navigator: nil, subHeading: nil, prose: nil),
               pathComponents: ["\(extendedType)"],
               docComment: .init([
@@ -168,7 +208,7 @@ class ExtendedTypesFormatTransformationTests: XCTestCase {
               mixins: [
                 SymbolGraph.Symbol.Swift.Extension.mixinKey: SymbolGraph.Symbol.Swift.Extension(extendedModule: "\(extendedModule)", constraints: [], typeKind: .struct)
               ]),
-        .init(identifier: .init(precise: "s:e:s:\(extendedModule)\(extendedType)short", interfaceLanguage: "swift"),
+        .init(identifier: .init(precise: "s:e:s:\(extendedModule)\(extendedType)one", interfaceLanguage: "swift"),
               names: .init(title: "\(extendedType)", navigator: nil, subHeading: nil, prose: nil),
               pathComponents: ["\(extendedType)"],
               docComment: .init([
@@ -180,18 +220,18 @@ class ExtendedTypesFormatTransformationTests: XCTestCase {
                 SymbolGraph.Symbol.Swift.Extension.mixinKey: SymbolGraph.Symbol.Swift.Extension(extendedModule: "\(extendedModule)", constraints: [], typeKind: .struct)
               ])
         ] + (withExtensionMembers ? [
-        .init(identifier: .init(precise: "s:\(extendedModule)\(extendedType)long", interfaceLanguage: "swift"),
-              names: .init(title: "long", navigator: nil, subHeading: nil, prose: nil),
-              pathComponents: ["\(extendedType)", "long"],
+        .init(identifier: .init(precise: "s:\(extendedModule)\(extendedType)two", interfaceLanguage: "swift"),
+              names: .init(title: "two", navigator: nil, subHeading: nil, prose: nil),
+              pathComponents: ["\(extendedType)", "two"],
               docComment: nil,
               accessLevel: .public,
               kind: .init(parsedIdentifier: .property, displayName: "Property"),
               mixins: [
                 SymbolGraph.Symbol.Swift.Extension.mixinKey: SymbolGraph.Symbol.Swift.Extension(extendedModule: "\(extendedModule)", constraints: [], typeKind: .struct)
               ]),
-        .init(identifier: .init(precise: "s:\(extendedModule)\(extendedType)short", interfaceLanguage: "swift"),
-              names: .init(title: "short", navigator: nil, subHeading: nil, prose: nil),
-              pathComponents: ["\(extendedType)", "short"],
+        .init(identifier: .init(precise: "s:\(extendedModule)\(extendedType)one", interfaceLanguage: "swift"),
+              names: .init(title: "one", navigator: nil, subHeading: nil, prose: nil),
+              pathComponents: ["\(extendedType)", "one"],
               docComment: nil,
               accessLevel: .public,
               kind: .init(parsedIdentifier: .property, displayName: "Property"),
@@ -200,11 +240,11 @@ class ExtendedTypesFormatTransformationTests: XCTestCase {
               ])
         ] : [])
         , relationships: [
-            .init(source: "s:e:s:\(extendedModule)\(extendedType)long", target: "s:\(extendedModule)\(extendedType)", kind: .extensionTo, targetFallback: "\(extendedModule).\(extendedType)"),
-            .init(source: "s:e:s:\(extendedModule)\(extendedType)short", target: "s:\(extendedModule)\(extendedType)", kind: .extensionTo, targetFallback: "\(extendedModule).\(extendedType)")
+            .init(source: "s:e:s:\(extendedModule)\(extendedType)two", target: "s:\(extendedModule)\(extendedType)", kind: .extensionTo, targetFallback: "\(extendedModule).\(extendedType)"),
+            .init(source: "s:e:s:\(extendedModule)\(extendedType)one", target: "s:\(extendedModule)\(extendedType)", kind: .extensionTo, targetFallback: "\(extendedModule).\(extendedType)")
         ] + (withExtensionMembers ? [
-            .init(source: "s:\(extendedModule)\(extendedType)long", target: "s:e:s:\(extendedModule)\(extendedType)long", kind: .memberOf, targetFallback: "\(extendedModule).\(extendedType)"),
-            .init(source: "s:\(extendedModule)\(extendedType)short", target: "s:e:s:\(extendedModule)\(extendedType)short", kind: .memberOf, targetFallback: "\(extendedModule).\(extendedType)")
+            .init(source: "s:\(extendedModule)\(extendedType)two", target: "s:e:s:\(extendedModule)\(extendedType)two", kind: .memberOf, targetFallback: "\(extendedModule).\(extendedType)"),
+            .init(source: "s:\(extendedModule)\(extendedType)one", target: "s:e:s:\(extendedModule)\(extendedType)one", kind: .memberOf, targetFallback: "\(extendedModule).\(extendedType)")
         ] : []))
     }
     
