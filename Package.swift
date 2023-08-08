@@ -19,7 +19,7 @@ let swiftSettings: [SwiftSetting] = [
 let package = Package(
     name: "SwiftDocC",
     platforms: [
-        .macOS(.v10_15),
+        .macOS(.v11),
         .iOS(.v13)
     ],
     products: [
@@ -45,6 +45,7 @@ let package = Package(
                 .product(name: "SymbolKit", package: "swift-docc-symbolkit"),
                 .product(name: "CLMDB", package: "swift-lmdb"),
                 .product(name: "Crypto", package: "swift-crypto"),
+                .product(name: "HTTPTypes", package: "swift-http-types"),
             ],
             swiftSettings: swiftSettings
         ),
@@ -139,6 +140,7 @@ if ProcessInfo.processInfo.environment["SWIFTCI_USE_LOCAL_DEPS"] == nil {
         .package(url: "https://github.com/apple/swift-docc-symbolkit", branch: "main"),
         .package(url: "https://github.com/apple/swift-crypto.git", from: "2.5.0"),
         .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.2.0"),
+        .package(url: "https://github.com/apple/swift-http-types.git", .upToNextMinor(from: "0.2.1")),
     ]
 } else {
     // Building in the Swift.org CI system, so rely on local versions of dependencies.
@@ -149,5 +151,6 @@ if ProcessInfo.processInfo.environment["SWIFTCI_USE_LOCAL_DEPS"] == nil {
         .package(path: "../swift-argument-parser"),
         .package(path: "../swift-docc-symbolkit"),
         .package(path: "../swift-crypto"),
+        .package(path: "../swift-http-types"),
     ]
 }

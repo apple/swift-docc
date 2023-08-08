@@ -28,7 +28,12 @@ public struct PrebuiltLocalFileSystemDataProvider: DocumentationWorkspaceDataPro
 
     public func contentsOfURL(_ url: URL) throws -> Data {
         precondition(url.isFileURL, "Unexpected non-file url '\(url)'.")
-        return try Data(contentsOf: url)
+        let fileHandle = try FileHandle(forReadingFrom: url)
+        guard let data = try fileHandle.readToEnd() else {
+            throw CocoaError(.fileReadUnknown, userInfo: ["path": url.path])
+        }
+
+        return data
     }
 }
 

@@ -129,8 +129,20 @@ public class NavigatorTree {
         - presentationIdentifier: Defines if nodes should have a presentation identifier useful in presentation contexts.
         - broadcast: The callback to update get updates of the current process.
      */
-    public func read(from url: URL, bundleIdentifier: String? = nil, interfaceLanguages: Set<InterfaceLanguage>, timeout: TimeInterval, delay: TimeInterval = 0.01, queue: DispatchQueue, presentationIdentifier: String? = nil, broadcast: BroadcastCallback?) throws {
-        let data = try Data(contentsOf: url)
+    public func read(
+        from url: URL,
+        bundleIdentifier: String? = nil,
+        interfaceLanguages: Set<InterfaceLanguage>,
+        timeout: TimeInterval,
+        delay: TimeInterval = 0.01,
+        queue: DispatchQueue,
+        presentationIdentifier: String? = nil,
+        broadcast: BroadcastCallback?
+    ) throws {
+        let fileHandle = try FileHandle(forReadingFrom: url)
+        guard let data = try fileHandle.readToEnd() else {
+            throw Error.cannotOpenFile(path: url.path)
+        }
         let readingCursor = ReadingCursor(data: data)
         self.readingCursor = readingCursor
         
@@ -312,9 +324,14 @@ public class NavigatorTree {
         presentationIdentifier: String? = nil,
         onNodeRead: ((NavigatorTree.Node) -> Void)? = nil
     ) throws -> NavigatorTree {
-        let fileUrl = URL(fileURLWithPath: path)
-        let data = try Data(contentsOf: fileUrl)
-        
+        guard let fileHandle = FileHandle(forReadingAtPath: path) else {
+            throw Error.cannotOpenFile(path: path)
+        }
+
+        guard let data = try fileHandle.readToEnd() else {
+            throw CocoaError(.fileReadUnknown, userInfo: ["path": path])
+        }
+
         var map = [UInt32: Node]()
         var index: UInt32 = 0
         var cursor = 0

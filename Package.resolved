@@ -64,6 +64,15 @@
       }
     },
     {
+      "identity" : "swift-http-types",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-http-types.git",
+      "state" : {
+        "revision" : "68deedb6b98837564cf0231fa1df48de35881993",
+        "version" : "0.2.1"
+      }
+    },
+    {
       "identity" : "swift-lmdb",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-lmdb.git",

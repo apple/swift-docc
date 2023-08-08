@@ -12,6 +12,7 @@
 import Foundation
 import NIO
 import NIOHTTP1
+import SwiftDocC
 
 /// A request handler that serves the default app page to clients.
 ///
@@ -28,8 +29,12 @@ struct DefaultRequestHandler: RequestHandlerFactory {
         where ChannelHandler.OutboundOut == HTTPServerResponsePart {
         
         return { context, head in
-            let response = try Data(contentsOf: self.rootURL.appendingPathComponent("index.html"))
-            
+            let fileURL = self.rootURL.appendingPathComponent("index.html")
+            let fileHandle = try FileHandle(forReadingFrom: fileURL)
+            guard let response = try fileHandle.readToEnd() else {
+                throw CocoaError(.fileReadUnknown, userInfo: ["path": fileURL.path])
+            }
+
             var content = context.channel.allocator.buffer(capacity: response.count)
             content.writeBytes(response)
             

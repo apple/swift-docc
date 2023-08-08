@@ -9,10 +9,8 @@
 */
 
 import Foundation
+import HTTPTypes
 import SymbolKit
-#if canImport(FoundationNetworking)
-import FoundationNetworking
-#endif
 
 fileprivate let slashCharSet = CharacterSet(charactersIn: "/")
 
@@ -56,16 +54,21 @@ public class FileServer {
     /**
      Returns the data for a given URL.
      */
+    @available(*, deprecated, message: "Use 'data(for path: String)' instead.")
     public func data(for url: URL) -> Data? {
+        return data(for: url.path)
+    }
+
+    public func data(for path: String) -> Data? {
         let providerKey = providers.keys.sorted { (l, r) -> Bool in
             l.count > r.count
-            }.filter { (path) -> Bool in
-                return url.path.trimmingCharacters(in: slashCharSet).hasPrefix(path)
+            }.filter { (providerPath) -> Bool in
+                return path.trimmingCharacters(in: slashCharSet).hasPrefix(providerPath)
             }.first ?? "" //in case missing an exact match, get the root one
         guard let provider = providers[providerKey] else {
             fatalError("A provider has not been passed to a FileServer.")
         }
-        return provider.data(for: url.path.trimmingCharacters(in: slashCharSet).removingPrefix(providerKey))
+        return provider.data(for: path.trimmingCharacters(in: slashCharSet).removingPrefix(providerKey))
     }
     
     /**
@@ -73,32 +76,32 @@ public class FileServer {
      - Parameter request: The request coming from a web client.
      - Returns: The response and data which are going to be served to the client.
      */
-    public func response(to request: URLRequest) -> (URLResponse, Data?) {
-        guard let url = request.url else {
-            return (HTTPURLResponse(url: baseURL, statusCode: 400, httpVersion: "HTTP/1.1", headerFields: nil)!, nil)
+    public func response(to request: HTTPRequest) -> (HTTPTypes.HTTPResponse, Data?) {
+        guard let path = request.path as NSString? else {
+            return (.init(status: 400), nil)
         }
         var data: Data? = nil
-        let response: URLResponse
-        
+        let response: HTTPTypes.HTTPResponse
+
         let mimeType: String
 
         // We need to make sure that the path extension is for an actual file and not a symbol name which is a false positive
         // like: "'...(_:)-6u3ic", that would be recognized as filename with the extension "(_:)-6u3ic". (rdar://71856738)
-        if url.pathExtension.isAlphanumeric && !url.lastPathComponent.isSwiftEntity {
-            data = self.data(for: url)
-            mimeType = FileServer.mimeType(for: url.pathExtension)
+        if path.pathExtension.isAlphanumeric && !path.lastPathComponent.isSwiftEntity {
+            data = self.data(for: path as String)
+            mimeType = FileServer.mimeType(for: path.pathExtension)
         } else { // request is for a path, we need to fake a redirect here
-            if url.pathComponents.isEmpty {
-                xlog("Tried to load an invalid URL: \(url.absoluteString).\nFalling back to serve index.html.")
+            if path.pathComponents.isEmpty {
+                xlog("Tried to load an invalid path: \(path).\nFalling back to serve index.html.")
             }
             mimeType = "text/html"
-            data = self.data(for: baseURL.appendingPathComponent("/index.html"))
+            data = self.data(for: "/index.html")
         }
         
         if let data = data {
-            response = URLResponse(url: url, mimeType: mimeType, expectedContentLength: data.count, textEncodingName: nil)
+            response = .init(status: .ok, headerFields: [.contentType: mimeType, .contentLength: "\(data.count)"])
         } else {
-            response = URLResponse(url: url, mimeType: nil, expectedContentLength: 0, textEncodingName: nil)
+            response = .init(status: .ok, headerFields: [.contentType: "application/octet-stream"])
         }
         
         return (response, data)
@@ -175,7 +178,8 @@ public class FileSystemServerProvider: FileServerProvider {
     
     public func data(for path: String) -> Data? {
         let finalURL = directoryURL.appendingPathComponent(path)
-        return try? Data(contentsOf: finalURL)
+        let fileHandle = try? FileHandle(forReadingFrom: finalURL)
+        return try? fileHandle?.readToEnd()
     }
     
 }
@@ -236,7 +240,12 @@ public class MemoryFileServerProvider: FileServerProvider {
         
         for file in enumerator {
             guard let file = file as? String else { fatalError("Enumerator returned an unexpected type.") }
-            guard let data = try? Data(contentsOf: URL(fileURLWithPath: path).appendingPathComponent(file)) else { continue }
+            let fileURL = URL(fileURLWithPath: path).appendingPathComponent(file)
+            guard
+                let fileHandle = try? FileHandle(forReadingFrom: fileURL),
+                let data = try? fileHandle.readToEnd()
+            else { continue }
+
             if recursive == false && file.contains("/") { continue } // skip if subfolder and recursive is disabled
             addFile(path: "/\(trimmedSubPath)/\(file)", data: data)
         }

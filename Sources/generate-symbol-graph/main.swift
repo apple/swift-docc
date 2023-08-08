@@ -164,6 +164,10 @@ let supportedDirectives: [Directive] = [
         )
     }
 
+enum SymbolGraphError: Error {
+    case noDataReadFromFile(path: String)
+}
+
 func generateSwiftDocCFrameworkSymbolGraph() throws -> SymbolGraph {
     let packagePath = URL(fileURLWithPath: #file)
         .deletingLastPathComponent() // generate-symbol-graph
@@ -206,7 +210,10 @@ func generateSwiftDocCFrameworkSymbolGraph() throws -> SymbolGraph {
         isDirectory: false
     )
     
-    let symbolGraphData = try Data(contentsOf: symbolGraphURL)
+    let symbolGraphFileHandle = try FileHandle(forReadingFrom: symbolGraphURL)
+    guard let symbolGraphData = try symbolGraphFileHandle.readToEnd() else {
+        throw SymbolGraphError.noDataReadFromFile(path: symbolGraphURL.path)
+    }
     return try JSONDecoder().decode(SymbolGraph.self, from: symbolGraphData)
 }
 
