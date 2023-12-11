@@ -103,6 +103,7 @@ class PreviewActionIntegrationTests: XCTestCase {
 //                tlsCertificateChain: nil,
 //                serverUsername: nil,
 //                serverPassword: nil,
+//                host: "localhost",
 //                port: 8080, // We ignore this value when we set the `bindServerToSocketPath` property below.
 //                createConvertAction: createConvertAction) else {
 //            XCTFail("Could not create preview action from parameters")
@@ -268,7 +269,7 @@ class PreviewActionIntegrationTests: XCTestCase {
 
     func testThrowsHumanFriendlyErrorWhenCannotStartServerOnAGivenPort() throws {
         // Binding an invalid address
-        try assert(bindPort: -1, expectedErrorMessage: "Can't start the preview server on port -1")
+        try assert(bindPort: -1, expectedErrorMessage: "Can't start the preview server on host localhost and port -1")
     }
     
     func assert(bindPort: Int, expectedErrorMessage: String, file: StaticString = #file, line: UInt = #line) throws {
@@ -301,6 +302,7 @@ class PreviewActionIntegrationTests: XCTestCase {
         }
         
         guard let preview = try? PreviewAction(
+                host: "localhost",
                 port: bindPort,
                 createConvertAction: createConvertAction) else {
             XCTFail("Could not create preview action from parameters", file: file, line: line)
@@ -375,6 +377,7 @@ class PreviewActionIntegrationTests: XCTestCase {
         }
         
         guard let preview = try? PreviewAction(
+                host: "localhost",
                 port: 0, // Use port 0 to pick a random free port number
                 createConvertAction: createConvertAction) else {
             XCTFail("Could not create preview action from parameters")
@@ -404,7 +407,7 @@ class PreviewActionIntegrationTests: XCTestCase {
         let boundPort = try XCTUnwrap(servers[preview.serverIdentifier]?.channel.localAddress?.port)
 
         // Try to start another preview on the same port
-        try assert(bindPort: boundPort, expectedErrorMessage: "Port \(boundPort) is not available at the moment, try a different port number")
+        try assert(bindPort: boundPort, expectedErrorMessage: "Port \(boundPort) is not available on host localhost at the moment, try a different port number")
 
         try preview.stop()
         
@@ -449,6 +452,7 @@ class PreviewActionIntegrationTests: XCTestCase {
         }
         
         guard let preview = try? PreviewAction(
+                host: "localhost",
                 port: 8080, // We ignore this value when we set the `bindServerToSocketPath` property below.
                 createConvertAction: createConvertAction) else {
             XCTFail("Could not create preview action from parameters")
