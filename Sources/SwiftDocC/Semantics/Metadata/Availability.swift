@@ -16,10 +16,10 @@ extension Metadata {
     ///
     /// `@Available` is analogous to the `@available` attribute in Swift: It allows you to specify a
     /// platform version that the page relates to. To specify a platform and version, list the platform
-    /// name and use the `introduced` argument:
+    /// name and use the `introduced` or `deprecated` arguments:
     ///
     /// ```markdown
-    /// @Available(macOS, introduced: "12.0")
+    /// @Available(macOS, introduced: "12.0", deprecated: "14.0")
     /// ```
     ///
     /// Any text can be given to the first argument, and will be displayed in the page's
@@ -48,9 +48,7 @@ extension Metadata {
         public static let introducedVersion = "5.8"
 
         public enum Platform: RawRepresentable, Hashable, DirectiveArgumentValueConvertible {
-            // FIXME: re-add `case any = "*"` when `isBeta` and `isDeprecated` are implemented
-            // cf. https://github.com/apple/swift-docc/issues/441
-            case macOS, iOS, watchOS, tvOS
+            case macOS, iOS, watchOS, tvOS, any
 
             case other(String)
 
@@ -64,8 +62,7 @@ extension Metadata {
                     }
                 }
                 if rawValue == "*" {
-                    // Reserve the `*` platform for when `isBeta` and `isDeprecated` can be implemented
-                    return nil
+                    self = .any
                 } else {
                     self = .other(rawValue)
                 }
@@ -77,6 +74,7 @@ extension Metadata {
                 case .iOS: return "iOS"
                 case .watchOS: return "watchOS"
                 case .tvOS: return "tvOS"
+                case .any: return "*"
                 case .other(let platform): return platform
                 }
             }
@@ -90,16 +88,18 @@ extension Metadata {
         @DirectiveArgumentWrapped(name: .unnamed)
         public var platform: Platform
 
-        /// The platform version that this page applies to.
+        /// The platform version that this page was introduced in..
         @DirectiveArgumentWrapped
         public var introduced: String
 
-        // FIXME: `isBeta` and `isDeprecated` properties/arguments
-        // cf. https://github.com/apple/swift-docc/issues/441
+        /// The platform version that this page was deprecated in.
+        @DirectiveArgumentWrapped
+        public var deprecated: String? = nil
 
         static var keyPaths: [String : AnyKeyPath] = [
             "platform"     : \Availability._platform,
             "introduced"   : \Availability._introduced,
+            "deprecated"   : \Availability._deprecated,
         ]
 
         public let originalMarkup: Markdown.BlockDirective

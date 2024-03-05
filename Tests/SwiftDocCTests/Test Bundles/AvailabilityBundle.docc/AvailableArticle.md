@@ -12,6 +12,7 @@ Here's a cool framework that I'm offering to the world.
 ### Cool Articles
 
 - <doc:ComplexAvailable>
+- <doc:ComplexAvailableDeprecated>
 - <doc:ArbitraryPlatforms>
 
 <!-- Copyright (c) 2022-2023 Apple Inc and the Swift Project authors. All Rights Reserved. -->
