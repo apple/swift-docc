@@ -8,6 +8,7 @@
  See https://swift.org/CONTRIBUTORS.txt for Swift project authors
 */
 
+import Foundation
 import struct Markdown.SourceRange
 import struct Markdown.SourceLocation
 import SymbolKit
@@ -150,7 +151,8 @@ extension PathHierarchy.Error {
             let solutions: [Solution] = candidates
                 .sorted(by: collisionIsBefore)
                 .map { (node: PathHierarchy.Node, disambiguation: String) -> Solution in
-                    return Solution(summary: "\(Self.replacementOperationDescription(from: disambiguations.dropFirst(), to: disambiguation)) for\n\(fullNameOfNode(node).singleQuoted)", replacements: [
+                    let toDisplay = disambiguation.first == ">" ? ("-" + disambiguation) : disambiguation
+                    return Solution(summary: "\(Self.replacementOperationDescription(from: disambiguations.dropFirst(), to: toDisplay)) for\n\(fullNameOfNode(node).singleQuoted)", replacements: [
                         Replacement(range: replacementRange, replacement: "-" + disambiguation)
                     ])
                 }
@@ -208,7 +210,8 @@ extension PathHierarchy.Error {
             let replacementRange = SourceRange.makeRelativeRange(startColumn: pathPrefix.count, length: disambiguations.count)
             
             let solutions: [Solution] = collisions.sorted(by: collisionIsBefore).map { (node: PathHierarchy.Node, disambiguation: String) -> Solution in
-                return Solution(summary: "\(Self.replacementOperationDescription(from: disambiguations.dropFirst(), to: disambiguation)) for\n\(fullNameOfNode(node).singleQuoted)", replacements: [
+                let toDisplay = disambiguation.first == ">" ? ("-" + disambiguation) : disambiguation
+                return Solution(summary: "\(Self.replacementOperationDescription(from: disambiguations.dropFirst(), to: toDisplay)) for\n\(fullNameOfNode(node).singleQuoted)", replacements: [
                     Replacement(range: replacementRange, replacement: "-" + disambiguation)
                 ])
             }
