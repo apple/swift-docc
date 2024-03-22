@@ -16,9 +16,11 @@ extension Metadata {
     ///
     /// `@Available` is analogous to the `@available` attribute in Swift: It allows you to specify a
     /// platform version that the page relates to. To specify a platform and version, list the platform
-    /// name and use the `introduced` or `deprecated` arguments:
+    /// name and use the `introduced` argument. In addition, you can also specify a deprecated
+    /// version, using the `deprecated` argument:
     ///
     /// ```markdown
+    /// @Available(macOS, introduced: "12.0")
     /// @Available(macOS, introduced: "12.0", deprecated: "14.0")
     /// ```
     ///

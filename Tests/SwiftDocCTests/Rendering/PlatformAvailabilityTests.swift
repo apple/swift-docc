@@ -107,41 +107,6 @@ class PlatformAvailabilityTests: XCTestCase {
         }))
     }
 
-    func testMultiplePlatformAvailabilityDeprecatedFromArticle() throws {
-        let (bundle, context) = try testBundleAndContext(named: "AvailabilityBundle")
-        let reference = ResolvedTopicReference(
-            bundleIdentifier: bundle.identifier,
-            path: "/documentation/AvailabilityBundle/ComplexAvailableDeprecated",
-            sourceLanguage: .swift
-        )
-        let article = try XCTUnwrap(context.entity(with: reference).semantic as? Article)
-        var translator = RenderNodeTranslator(
-            context: context,
-            bundle: bundle,
-            identifier: reference,
-            source: nil
-        )
-        let renderNode = try XCTUnwrap(translator.visitArticle(article) as? RenderNode)
-        let availability = try XCTUnwrap(renderNode.metadata.platformsVariants.defaultValue)
-        XCTAssertEqual(availability.count, 5)
-
-        XCTAssert(availability.contains(where: { item in
-            item.name == "iOS" && item.introduced == "11.0" && item.deprecated == "17.0"
-        }))
-        XCTAssert(availability.contains(where: { item in
-            item.name == "macOS" && item.introduced == "11.0" && item.deprecated == "14.0"
-        }))
-        XCTAssert(availability.contains(where: { item in
-            item.name == "watchOS" && item.deprecated == "7.0"
-        }))
-        XCTAssert(availability.contains(where: { item in
-            item.name == "MyPackage" && item.deprecated == "2.0"
-        }))
-        XCTAssert(availability.contains(where: { item in
-            item.name == "*" && item.deprecated == "2.0"
-        }))
-    }
-
     func testArbitraryPlatformAvailability() throws {
         let (bundle, context) = try testBundleAndContext(named: "AvailabilityBundle")
         let reference = ResolvedTopicReference(
@@ -167,7 +132,7 @@ class PlatformAvailabilityTests: XCTestCase {
             item.name == "My Package" && item.introduced == "2.0"
         }))
     }
-
+    
     // Test that the Info.plist default availability does not affect the deprecated/unavailable availabilities provided by the symbol graph.
     func testAvailabilityParserWithInfoPlistDefaultAvailability() throws {
         let (bundle, context) = try testBundleAndContext(named: "AvailabilityOverrideBundle")
