@@ -142,11 +142,11 @@ public struct AvailabilityRenderItem: Codable, Hashable, Equatable {
 
     init?(_ availability: Metadata.Availability, current: PlatformVersion?) {
         // FIXME: Deprecated/Beta markings need platform versions to display properly in Swift-DocC-Render (rdar://56897597)
-        // Fill in the appropriate values here when that's fixed (https://github.com/apple/swift-docc/issues/441)
 
         let platformName = PlatformName(metadataPlatform: availability.platform)
         name = platformName?.displayName
         introduced = availability.introduced
+        deprecated = availability.deprecated
     }
     
     /// Creates a new item with the given platform name and version string.

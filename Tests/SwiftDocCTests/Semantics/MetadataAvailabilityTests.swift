@@ -63,10 +63,7 @@ class MetadataAvailabilityTests: XCTestCase {
     func testValidDirective() throws {
         // assemble all the combinations of arguments you could give
         let validArguments: [String] = [
-            // FIXME: isBeta and isDeprecated are unused (https://github.com/apple/swift-docc/issues/441)
-//            "isBeta: true",
-//            "isDeprecated: true",
-//            "isBeta: true, isDeprecated: true",
+          "deprecated: \"0.1\"",
         ]
         // separate those that give a version so we can test the `*` platform separately
         var validArgumentsWithVersion = ["introduced: \"1.0\""]
@@ -76,10 +73,9 @@ class MetadataAvailabilityTests: XCTestCase {
 
         var checkPlatforms = Metadata.Availability.Platform.defaultCases.map({ $0.rawValue })
         checkPlatforms.append("Package")
+        checkPlatforms.append("*")
 
         for platform in checkPlatforms {
-            // FIXME: Test validArguments with the `*` platform once that's introduced
-            // cf. https://github.com/apple/swift-docc/issues/441
             for args in validArgumentsWithVersion {
                 try assertValidAvailability(source: "@Available(\(platform), \(args))")
             }
@@ -91,16 +87,16 @@ class MetadataAvailabilityTests: XCTestCase {
         }
 
         // also test for giving no platform
-        for args in validArguments {
-            try assertValidAvailability(source: "@Available(\(args))")
+        for args in validArgumentsWithVersion {
+            try assertValidAvailability(source: "@Available(*, \(args))")
         }
 
-        // basic validity test for giving several directives
-        // FIXME: re-add isBeta after that is implemented (https://github.com/apple/swift-docc/issues/441)
         let source = """
         @Metadata {
             @Available(macOS, introduced: "11.0")
             @Available(iOS, introduced: "15.0")
+            @Available(watchOS, introduced: "7.0", deprecated: "9.0")
+            @Available(*, introduced: "0.1", deprecated: "1.0")
         }
         """
         try assertValidMetadata(source: source)
