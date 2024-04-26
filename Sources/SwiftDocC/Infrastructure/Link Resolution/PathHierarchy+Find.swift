@@ -8,6 +8,9 @@
  See https://swift.org/CONTRIBUTORS.txt for Swift project authors
 */
 
+import Foundation
+import SymbolKit
+
 extension PathHierarchy {
     /// Attempts to find an element in the path hierarchy for a given path relative to another element.
     ///
@@ -247,6 +250,7 @@ extension PathHierarchy {
                 
                 // When there's a collision, use the remaining path components to try and narrow down the possible collisions.
                 
+                // See if the collision can be resolved by looking ahead one level deeper.
                 guard let nextPathComponent = remaining.dropFirst().first else {
                     // This was the last path component so there's nothing to look ahead.
                     //
@@ -459,15 +463,44 @@ extension PathHierarchy.DisambiguationContainer {
             case (nil, nil):
                 break
             }
+        case .typeSignature(let parameterTypes, let returnTypes):
+            switch (parameterTypes, returnTypes) {
+            case (let parameterTypes?, let returnTypes?):
+                return storage.first(where: { typesMatch(provided: parameterTypes, actual: $0.parameterTypes) && typesMatch(provided: returnTypes, actual: $0.returnTypes) })?.node
+            case (let parameterTypes?, nil):
+                let matches = storage.filter({ typesMatch(provided: parameterTypes, actual: $0.parameterTypes) })
+                guard matches.count <= 1 else {
+                    throw Error.lookupCollision(matches.map { ($0.node, formattedTypes($0.parameterTypes)!) }) // An element wouldn't match if it didn't have parameter type disambiguation.
+                }
+                return matches.first?.node
+            case (nil, let returnTypes?):
+                let matches = storage.filter({ typesMatch(provided: returnTypes, actual: $0.returnTypes) })
+                guard matches.count <= 1 else {
+                    throw Error.lookupCollision(matches.map { ($0.node, formattedTypes($0.returnTypes)!) }) // An element wouldn't match if it didn't have return type disambiguation.
+                }
+                return matches.first?.node
+            case (nil, nil):
+                break
+            }
         case nil:
             break
         }
+
         // Disambiguate by a mix of kinds and USRs
         throw Error.lookupCollision(self.disambiguatedValues().map { ($0.value, $0.disambiguation.value()) })
     }
 }
 
 // MARK: Private helper extensions
+
+private func formattedTypes(_ types: [String]?) -> String? {
+    guard let types = types else { return nil }
+    switch types.count {
+    case 0: return "()"
+    case 1: return types[0]
+    default: return "(\(types.joined(separator: ","))"
+    }
+}
 
 // Allow optional substrings to be compared to non-optional strings
 private func == (lhs: (some StringProtocol)?, rhs: some StringProtocol) -> Bool {
@@ -507,6 +540,11 @@ private extension PathHierarchy.Node {
                 return name == component.name
                     && (kind == nil || kind! == symbol.kind.identifier.identifier)
                     && (hash == nil || hash! == symbol.identifier.precise.stableHashString)
+            case .typeSignature(let parameterTypes, let returnTypes):
+                let functionSignatureTypeNames = PathHierarchy.functionSignatureTypeNames(for: symbol)
+                return name == component.name
+                    && (parameterTypes == nil || typesMatch(provided: parameterTypes!, actual: functionSignatureTypeNames?.parameterTypeNames))
+                    && (returnTypes    == nil || typesMatch(provided: returnTypes!,    actual: functionSignatureTypeNames?.returnTypeNames))
             }
         }
         
@@ -518,4 +556,12 @@ private extension PathHierarchy.Node {
         return keys.contains(component.full)
             || keys.contains(String(component.name))
     }
+}
+
+private func typesMatch(provided: [Substring], actual: [String]?) -> Bool {
+    guard let actual = actual, provided.count == actual.count else { return false }
+    for (providedType, actualType) in zip(provided, actual) where providedType != "_" && providedType != actualType {
+        return false
+    }
+    return true
 }
